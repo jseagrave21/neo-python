@@ -3,7 +3,7 @@ from neo.Prompt.Utils import parse_param
 from neo.Core.FunctionCode import FunctionCode
 from neo.Core.State.ContractState import ContractPropertyState
 from neo.SmartContract.ContractParameterType import ContractParameterType
-from prompt_toolkit import prompt
+from prompt_toolkit.shortcuts import PromptSession
 import json
 from neo.VM.ScriptBuilder import ScriptBuilder
 from neo.Prompt.Utils import get_arg
@@ -57,8 +57,8 @@ def ImportContractAddr(wallet, args):
 
 
 def LoadContract(args):
-    if len(args) < 5:
-        print("please specify contract to load like such: 'import contract {path} {params} {return_type} {needs_storage} {needs_dynamic_invoke}'")
+    if len(args) < 6:
+        print("please specify contract to load like such: 'import contract {path} {params} {return_type} {needs_storage} {needs_dynamic_invoke} {is_payable}'")
         return
 
     path = args[0]
@@ -71,6 +71,7 @@ def LoadContract(args):
 
     needs_storage = bool(parse_param(args[3]))
     needs_dynamic_invoke = bool(parse_param(args[4]))
+    is_payable = bool(parse_param(args[5]))
 
     contract_properties = 0
 
@@ -79,6 +80,9 @@ def LoadContract(args):
 
     if needs_dynamic_invoke:
         contract_properties += ContractPropertyState.HasDynamicInvoke
+
+    if is_payable:
+        contract_properties += ContractPropertyState.Payable
 
     script = None
 
@@ -114,8 +118,8 @@ def LoadContract(args):
 
 
 def GatherLoadedContractParams(args, script):
-    if len(args) < 4:
-        raise Exception("please specify contract properties like {params} {return_type} {needs_storage} {needs_dynamic_invoke}")
+    if len(args) < 5:
+        raise Exception("please specify contract properties like {params} {return_type} {needs_storage} {needs_dynamic_invoke} {is_payable}")
     params = parse_param(args[0], ignore_int=True, prefer_hex=False)
 
     if type(params) is str:
@@ -125,6 +129,7 @@ def GatherLoadedContractParams(args, script):
 
     needs_storage = bool(parse_param(args[2]))
     needs_dynamic_invoke = bool(parse_param(args[3]))
+    is_payable = bool(parse_param(args[4]))
 
     contract_properties = 0
 
@@ -134,43 +139,28 @@ def GatherLoadedContractParams(args, script):
     if needs_dynamic_invoke:
         contract_properties += ContractPropertyState.HasDynamicInvoke
 
+    if is_payable:
+        contract_properties += ContractPropertyState.Payable
+
     out = generate_deploy_script(script, contract_properties=contract_properties, return_type=return_type, parameter_list=params)
 
     return out
 
 
-def GatherContractDetails(function_code, prompter):
-    name = None
-    version = None
-    author = None
-    email = None
-    description = None
+def GatherContractDetails(function_code):
 
     print("Please fill out the following contract details:")
-    name = prompt("[Contract Name] > ",
-                  completer=prompter.get_completer(),
-                  get_bottom_toolbar_tokens=prompter.get_bottom_toolbar,
-                  style=prompter.token_style)
 
-    version = prompt("[Contract Version] > ",
-                     completer=prompter.get_completer(),
-                     get_bottom_toolbar_tokens=prompter.get_bottom_toolbar,
-                     style=prompter.token_style)
+    from neo.bin.prompt import PromptInterface
 
-    author = prompt("[Contract Author] > ",
-                    completer=prompter.get_completer(),
-                    get_bottom_toolbar_tokens=prompter.get_bottom_toolbar,
-                    style=prompter.token_style)
+    session = PromptSession(completer=PromptInterface.prompt_completer,
+                            history=PromptInterface.history)
 
-    email = prompt("[Contract Email] > ",
-                   completer=prompter.get_completer(),
-                   get_bottom_toolbar_tokens=prompter.get_bottom_toolbar,
-                   style=prompter.token_style)
-
-    description = prompt("[Contract Description] > ",
-                         completer=prompter.get_completer(),
-                         get_bottom_toolbar_tokens=prompter.get_bottom_toolbar,
-                         style=prompter.token_style)
+    name = session.prompt("[Contract Name] > ")
+    version = session.prompt("[Contract Version] > ")
+    author = session.prompt("[Contract Author] > ")
+    email = session.prompt("[Contract Email] > ")
+    description = session.prompt("[Contract Description] > ")
 
     print("Creating smart contract....")
     print("                 Name: %s " % name)
@@ -180,6 +170,7 @@ def GatherContractDetails(function_code, prompter):
     print("          Description: %s " % description)
     print("        Needs Storage: %s " % function_code.HasStorage)
     print(" Needs Dynamic Invoke: %s " % function_code.HasDynamicInvoke)
+    print("           Is Payable: %s " % function_code.IsPayable)
     print(json.dumps(function_code.ToJson(), indent=4))
 
     return generate_deploy_script(function_code.Script, name, version, author, email, description,
@@ -235,5 +226,6 @@ def ImportMultiSigContractAddr(wallet, args):
         wallet.AddContract(verification_contract)
 
         print("Added multi-sig contract address %s to wallet" % address)
+        return address
 
     return 'Hello'

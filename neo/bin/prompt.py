@@ -10,16 +10,18 @@ import logging
 import sys
 from time import sleep
 from logzero import logger
-from prompt_toolkit import prompt
-from prompt_toolkit.contrib.completers import WordCompleter
+from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.shortcuts import print_tokens
-from prompt_toolkit.styles import style_from_dict
-from prompt_toolkit.token import Token
+from prompt_toolkit.shortcuts import print_formatted_text, PromptSession
+from prompt_toolkit import prompt
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.styles import Style
+from prompt_toolkit import prompt
 from twisted.internet import reactor, task
 
 from neo import __version__
 from neo.Core.Blockchain import Blockchain
+from neo.SmartContract.ContractParameter import ContractParameter, ContractParameterType
 from neocore.Fixed8 import Fixed8
 from neo.IO.MemoryStream import StreamManager
 from neo.Wallets.utils import to_aes_key
@@ -38,8 +40,8 @@ from neo.contrib.nex.withdraw import RequestWithdrawFrom, PrintHolds, DeleteHold
 
 from neo.Prompt.Commands.Tokens import token_approve_allowance, token_get_allowance, token_send, token_send_from, \
     token_mint, token_crowdsale_register, token_history
-from neo.Prompt.Commands.Wallet import DeleteAddress, ImportWatchAddr, ImportToken, ClaimGas, DeleteToken, AddAlias, \
-    ShowUnspentCoins
+from neo.Prompt.Commands.Wallet import CreateAddress, DeleteAddress, ImportWatchAddr, ImportToken, ClaimGas, DeleteToken, AddAlias, \
+    ShowUnspentCoins, SplitUnspentCoin
 
 from neo.Prompt.Utils import get_arg, get_from_addr, get_tx_attr_from_args, get_owners_from_params
 from neo.Prompt.InputParser import InputParser
@@ -82,6 +84,9 @@ class PromptFileHistory(FileHistory):
 
 
 class PromptInterface:
+    prompt_completer = None
+    history = None
+
     go_on = True
 
     _walletdb_loop = None
@@ -106,11 +111,13 @@ class PromptInterface:
                 'config debug {on/off}',
                 'config sc-events {on/off}',
                 'config maxpeers {num_peers}',
-                'build {path/to/file.py} (test {params} {returntype} {needs_storage} {needs_dynamic_invoke} {test_params})',
-                'load_run {path/to/file.avm} (test {params} {returntype} {needs_storage} {needs_dynamic_invoke} {test_params})',
+                'config node-requests {reqsize} {queuesize}',
+                'config node-requests {slow/normal/fast}',
+                'build {path/to/file.py} (test {params} {returntype} {needs_storage} {needs_dynamic_invoke} {is_payable} [{test_params} or --i]) --no-parse-addr (parse address strings to script hash bytearray)',
+                'load_run {path/to/file.avm} (test {params} {returntype} {needs_storage} {needs_dynamic_invoke} {is_payable} [{test_params} or --i]) --no-parse-addr (parse address strings to script hash bytearray)',
                 'import wif {wif}',
                 'import nep2 {nep2_encrypted_key}',
-                'import contract {path/to/file.avm} {params} {returntype} {needs_storage} {needs_dynamic_invoke}',
+                'import contract {path/to/file.avm} {params} {returntype} {needs_storage} {needs_dynamic_invoke} {is_payable}',
                 'import contract_addr {contract_hash} {pubkey}',
                 'import multisig_addr {pubkey in wallet} {minimum # of signatures required} {signing pubkey 1} {signing pubkey 2}...',
                 'import watch_addr {address}',
@@ -123,6 +130,7 @@ class PromptInterface:
                 'wallet claim (max_coins_to_claim)',
                 'wallet migrate',
                 'wallet rebuild {start block}',
+                'wallet create_addr {number of addresses <= 3}',
                 'wallet delete_addr {addr}',
                 'wallet delete_token {token_contract_hash}',
                 'wallet alias {addr} {title}',
@@ -133,7 +141,8 @@ class PromptInterface:
                 'wallet tkn_mint {token symbol} {mint_to_addr} (--attach-neo={amount}, --attach-gas={amount})',
                 'wallet tkn_register {addr} ({addr}...) (--from-addr={addr})',
                 'wallet tkn_history {token symbol}',
-                'wallet unspent',
+                'wallet unspent (neo/gas)',
+                'wallet split {addr} {asset} {unspent index} {divide into number of vins}',
                 'wallet close',
                 'withdraw_request {asset_name} {contract_hash} {to_addr} {amount}',
                 'withdraw holds # lists all current holds',
@@ -142,13 +151,11 @@ class PromptInterface:
                 'withdraw cleanup # cleans up completed holds',
                 'withdraw # withdraws the first hold availabe',
                 'withdraw all # withdraw all holds available',
-                'send {assetId or name} {address} {amount} (--from-addr={addr})',
+                'send {assetId or name} {address} {amount} (--from-addr={addr}) (--fee={priority_fee})',
                 'sign {transaction in JSON format}',
-                'testinvoke {contract hash} {params} (--attach-neo={amount}, --attach-gas={amount}) (--from-addr={addr})',
+                'testinvoke {contract hash} [{params} or --i] (--attach-neo={amount}, --attach-gas={amount}) (--from-addr={addr}) --no-parse-addr (parse address strings to script hash bytearray)',
                 'debugstorage {on/off/reset}'
                 ]
-
-    history = None
 
     token_style = None
     start_height = None
@@ -156,26 +163,30 @@ class PromptInterface:
 
     def __init__(self, history_filename=None):
         if history_filename:
-            self.history = PromptFileHistory(history_filename)
+            PromptInterface.history = PromptFileHistory(history_filename)
 
         self.input_parser = InputParser()
         self.start_height = Blockchain.Default().Height
         self.start_dt = datetime.datetime.utcnow()
 
-        self.token_style = style_from_dict({
-            Token.Command: preferences.token_style['Command'],
-            Token.Neo: preferences.token_style['Neo'],
-            Token.Default: preferences.token_style['Default'],
-            Token.Number: preferences.token_style['Number'],
+        self.token_style = Style.from_dict({
+            "command": preferences.token_style['Command'],
+            "neo": preferences.token_style['Neo'],
+            "default": preferences.token_style['Default'],
+            "number": preferences.token_style['Number'],
         })
 
     def get_bottom_toolbar(self, cli=None):
         out = []
         try:
-            out = [(Token.Command, '[%s] Progress: ' % settings.net_name),
-                   (Token.Number, str(Blockchain.Default().Height + 1)),
-                   (Token.Neo, '/'),
-                   (Token.Number, str(Blockchain.Default().HeaderHeight + 1))]
+            # Note: not sure if prompt-toolkit still supports foreground colors, couldn't get it to work
+            # out = [("class:command", '[%s] Progress: ' % settings.net_name),
+            #        ("class:number", str(Blockchain.Default().Height + 1)),
+            #        ("class:neo", '/'),
+            #        ("class:number", str(Blockchain.Default().HeaderHeight + 1))]
+            return "[%s] Progress: %s/%s" % (settings.net_name,
+                                             str(Blockchain.Default().Height + 1),
+                                             str(Blockchain.Default().HeaderHeight + 1))
         except Exception as e:
             pass
 
@@ -204,9 +215,9 @@ class PromptInterface:
 
         all_completions = standard_completions + self._known_things
 
-        completer = WordCompleter(all_completions)
+        PromptInterface.prompt_completer = WordCompleter(all_completions)
 
-        return completer
+        return PromptInterface.prompt_completer
 
     def quit(self):
         print('Shutting down. This may take a bit...')
@@ -217,8 +228,8 @@ class PromptInterface:
     def help(self):
         tokens = []
         for c in self.commands:
-            tokens.append((Token.Command, "%s\n" % c))
-        print_tokens(tokens, self.token_style)
+            tokens.append(("class:command", "%s\n" % c))
+        print_formatted_text(FormattedText(tokens), style=self.token_style)
 
     def do_open(self, arguments):
         if self.Wallet:
@@ -527,6 +538,9 @@ class PromptInterface:
         elif item == 'migrate' and self.Wallet is not None:
             self.Wallet.Migrate()
             print("Migrated wallet")
+        elif item == 'create_addr':
+            addresses_to_create = get_arg(arguments, 1)
+            CreateAddress(self, self.Wallet, addresses_to_create)
         elif item == 'delete_addr':
             addr_to_delete = get_arg(arguments, 1)
             DeleteAddress(self, self.Wallet, addr_to_delete)
@@ -567,6 +581,8 @@ class PromptInterface:
             token_history(self.Wallet, notification_db, arguments[1:])
         elif item == 'unspent':
             ShowUnspentCoins(self.Wallet, arguments[1:])
+        elif item == 'split':
+            SplitUnspentCoin(self.Wallet, arguments[1:])
         elif item == 'alias':
             if len(arguments) == 3:
                 AddAlias(self.Wallet, arguments[1], arguments[2])
@@ -605,15 +621,15 @@ class PromptInterface:
         out += "Time elapsed %s mins\n" % mins
         out += "Blocks per min %s \n" % bpm
         out += "TPS: %s \n" % tps
-        tokens = [(Token.Number, out)]
-        print_tokens(tokens, self.token_style)
+        tokens = [("class:number", out)]
+        print_formatted_text(FormattedText(tokens), style=self.token_style)
 
     def show_nodes(self):
         if len(NodeLeader.Instance().Peers) > 0:
             out = "Total Connected: %s\n" % len(NodeLeader.Instance().Peers)
             for peer in NodeLeader.Instance().Peers:
                 out += "Peer %s - IO: %s\n" % (peer.Name(), peer.IOStats())
-            print_tokens([(Token.Number, out)], self.token_style)
+            print_formatted_text(FormattedText([("class:number", out)]), style=self.token_style)
         else:
             print("Not connected yet\n")
 
@@ -626,8 +642,8 @@ class PromptInterface:
             if block is not None:
 
                 bjson = json.dumps(block.ToJson(), indent=4)
-                tokens = [(Token.Number, bjson)]
-                print_tokens(tokens, self.token_style)
+                tokens = [("class:number", bjson)]
+                print_formatted_text(FormattedText(tokens), style=self.token_style)
                 print('\n')
                 if txarg and 'tx' in txarg:
 
@@ -660,8 +676,8 @@ class PromptInterface:
                     jsn['height'] = height
                     jsn['unspents'] = [uns.ToJson(tx.outputs.index(uns)) for uns in
                                        Blockchain.Default().GetAllUnspent(txid)]
-                    tokens = [(Token.Command, json.dumps(jsn, indent=4))]
-                    print_tokens(tokens, self.token_style)
+                    tokens = [("class:command", json.dumps(jsn, indent=4))]
+                    print_formatted_text(FormattedText(tokens), style=self.token_style)
                     print('\n')
             except Exception as e:
                 print("Could not find transaction from args: %s (%s)" % (e, args))
@@ -676,8 +692,8 @@ class PromptInterface:
 
             if account is not None:
                 bjson = json.dumps(account.ToJson(), indent=4)
-                tokens = [(Token.Number, bjson)]
-                print_tokens(tokens, self.token_style)
+                tokens = [("class:number", bjson)]
+                print_formatted_text(FormattedText(tokens), style=self.token_style)
                 print('\n')
             else:
                 print("Account %s not found" % item)
@@ -695,8 +711,8 @@ class PromptInterface:
                 print("Found %s results for %s" % (len(results), query))
                 for asset in results:
                     bjson = json.dumps(asset.ToJson(), indent=4)
-                    tokens = [(Token.Number, bjson)]
-                    print_tokens(tokens, self.token_style)
+                    tokens = [("class:number", bjson)]
+                    print_formatted_text(FormattedText(tokens), style=self.token_style)
                     print('\n')
 
                 return
@@ -705,8 +721,8 @@ class PromptInterface:
 
             if asset is not None:
                 bjson = json.dumps(asset.ToJson(), indent=4)
-                tokens = [(Token.Number, bjson)]
-                print_tokens(tokens, self.token_style)
+                tokens = [("class:number", bjson)]
+                print_formatted_text(FormattedText(tokens), style=self.token_style)
                 print('\n')
             else:
                 print("Asset %s not found" % item)
@@ -729,8 +745,8 @@ class PromptInterface:
                     print("Found %s results for %s" % (len(contracts), query))
                     for contract in contracts:
                         bjson = json.dumps(contract.ToJson(), indent=4)
-                        tokens = [(Token.Number, bjson)]
-                        print_tokens(tokens, self.token_style)
+                        tokens = [("class:number", bjson)]
+                        print_formatted_text(FormattedText(tokens), style=self.token_style)
                         print('\n')
                 else:
                     print("Please specify a search query")
@@ -741,8 +757,8 @@ class PromptInterface:
                     contract.DetermineIsNEP5()
                     jsn = contract.ToJson()
                     bjson = json.dumps(jsn, indent=4)
-                    tokens = [(Token.Number, bjson)]
-                    print_tokens(tokens, self.token_style)
+                    tokens = [("class:number", bjson)]
+                    print_formatted_text(FormattedText(tokens), style=self.token_style)
                     print('\n')
         else:
             print("Please specify a contract")
@@ -758,11 +774,14 @@ class PromptInterface:
             tx, fee, results, num_ops = TestInvokeContract(self.Wallet, args, from_addr=from_addr, invoke_attrs=invoke_attrs, owners=owners)
 
             if tx is not None and results is not None:
+
+                parameterized_results = [ContractParameter.ToParameter(item) for item in results]
+
                 print(
                     "\n-------------------------------------------------------------------------------------------------------------------------------------")
                 print("Test invoke successful")
                 print("Total operations: %s" % num_ops)
-                print("Results %s" % [str(item) for item in results])
+                print("Results %s" % [item.ToJson() for item in parameterized_results])
                 print("Invoke TX GAS cost: %s" % (tx.Gas.value / Fixed8.D))
                 print("Invoke TX fee: %s" % (fee.value / Fixed8.D))
                 print(
@@ -794,7 +813,7 @@ class PromptInterface:
 
         if function_code:
 
-            contract_script = GatherContractDetails(function_code, self)
+            contract_script = GatherContractDetails(function_code)
 
             if contract_script is not None:
 
@@ -831,7 +850,7 @@ class PromptInterface:
         totalmb = total / (1024 * 1024)
         out = "Total: %s MB\n" % totalmb
         out += "Total buffers: %s\n" % StreamManager.TotalBuffers()
-        print_tokens([(Token.Number, out)], self.token_style)
+        print_formatted_text(FormattedText([("class:number", out)]), style=self.token_style)
 
     def handle_debug_storage(self, args):
         what = get_arg(args)
@@ -903,6 +922,11 @@ class PromptInterface:
             else:
                 print("Cannot configure VM instruction logging. Please specify on|off")
 
+        elif what == 'node-requests':
+            if len(args) == 3:
+                NodeLeader.Instance().setBlockReqSizeAndMax(int(args[1]), int(args[2]))
+            elif len(args) == 2:
+                NodeLeader.Instance().setBlockReqSizeByName(args[1])
         else:
             print(
                 "Cannot configure %s try 'config sc-events on|off', 'config debug on|off', 'config sc-debug-notify on|off' or 'config vm-log on|off'" % what)
@@ -911,24 +935,24 @@ class PromptInterface:
         dbloop = task.LoopingCall(Blockchain.Default().PersistBlocks)
         dbloop.start(.1)
 
-#        Blockchain.Default().PersistBlocks()
+        tokens = [("class:neo", 'NEO'), ("class:default", ' cli. Type '),
+                  ("class:command", '\'help\' '), ("class:default", 'to get started')]
 
-        tokens = [(Token.Neo, 'NEO'), (Token.Default, ' cli. Type '),
-                  (Token.Command, '\'help\' '), (Token.Default, 'to get started')]
-
-        print_tokens(tokens, self.token_style)
+        print_formatted_text(FormattedText(tokens), style=self.token_style)
         print('\n')
 
         while self.go_on:
 
+            session = PromptSession("neo> ",
+                                    completer=self.get_completer(),
+                                    history=self.history,
+                                    bottom_toolbar=self.get_bottom_toolbar,
+                                    style=self.token_style,
+                                    refresh_interval=3,
+                                    )
+
             try:
-                result = prompt("neo> ",
-                                completer=self.get_completer(),
-                                history=self.history,
-                                get_bottom_toolbar_tokens=self.get_bottom_toolbar,
-                                style=self.token_style,
-                                refresh_interval=3
-                                )
+                result = session.prompt()
             except EOFError:
                 # Control-D pressed: quit
                 return self.quit()
@@ -1093,7 +1117,7 @@ def main():
     cli = PromptInterface(fn_prompt_history)
 
     # Run things
-#    reactor.suggestThreadPoolSize(15)
+    #    reactor.suggestThreadPoolSize(15)
     reactor.callInThread(cli.run)
     NodeLeader.Instance().Start()
 

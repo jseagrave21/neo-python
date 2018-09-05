@@ -3,7 +3,7 @@ from logzero import logger
 
 from neo.VM.ExecutionEngine import ExecutionEngine
 from neo.VM.OpCode import CALL, APPCALL, CHECKSIG, HASH160, HASH256, NOP, SHA1, SHA256, DEPTH, DUP, PACK, TUCK, OVER, \
-    SYSCALL, TAILCALL, NEWARRAY, NEWSTRUCT, PUSH16, UNPACK, CAT, CHECKMULTISIG, PUSHDATA4
+    SYSCALL, TAILCALL, NEWARRAY, NEWSTRUCT, PUSH16, UNPACK, CAT, CHECKMULTISIG, PUSHDATA4, VERIFY
 from neo.VM import VMState
 from neocore.Cryptography.Crypto import Crypto
 from neocore.Fixed8 import Fixed8
@@ -27,6 +27,7 @@ from neo.Settings import settings
 
 
 class ApplicationEngine(ExecutionEngine):
+
     ratio = 100000
     gas_free = 10 * 100000000
     gas_amount = 0
@@ -34,6 +35,8 @@ class ApplicationEngine(ExecutionEngine):
     testMode = False
 
     Trigger = None
+
+    invocation_args = None
 
     def GasConsumed(self):
         return Fixed8(self.gas_consumed)
@@ -287,12 +290,17 @@ class ApplicationEngine(ExecutionEngine):
             return 10
         elif opcode == HASH160 or opcode == HASH256:
             return 20
-        elif opcode == CHECKSIG:
+        elif opcode in [CHECKSIG, VERIFY]:
             return 100
         elif opcode == CHECKMULTISIG:
             if self.EvaluationStack.Count == 0:
                 return 1
-            n = self.EvaluationStack.Peek().GetBigInteger()
+            item = self.EvaluationStack.Peek()
+
+            if isinstance(item, Array):
+                n = item.Count
+            else:
+                n = item.GetBigInteger()
 
             if n < 1:
                 return 1
@@ -316,6 +324,7 @@ class ApplicationEngine(ExecutionEngine):
         api_name = strbytes.decode('utf-8')
 
         api = api_name.replace('Antshares.', 'Neo.')
+        api = api.replace('System.', 'Neo.')
 
         if api == "Neo.Runtime.CheckWitness":
             return 200
@@ -326,10 +335,10 @@ class ApplicationEngine(ExecutionEngine):
         elif api == "Neo.Blockchain.GetBlock":
             return 200
 
-        elif api == "Neo.Runtime.GetTime":
+        elif api == "Neo.Blockchain.GetTransaction":
             return 100
 
-        elif api == "Neo.Blockchain.GetTransaction":
+        elif api == "Neo.Blockchain.GetTransactionHeight":
             return 100
 
         elif api == "Neo.Blockchain.GetAccount":

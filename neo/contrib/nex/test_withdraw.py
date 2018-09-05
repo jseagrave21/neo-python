@@ -11,7 +11,6 @@ from neo.contrib.nex.withdraw import WithdrawAll, WithdrawOne, PrintHolds, \
     CleanupCompletedHolds, ShowCompletedHolds, RequestWithdrawFrom, DeleteHolds
 from neo.Settings import settings
 import os
-import json
 
 
 class WithdrawWalletTestCase(WalletFixtureTestCase):
@@ -174,4 +173,4 @@ class WithdrawWalletTestCase(WalletFixtureTestCase):
 
         wallet.LoadHolds()
 
-        self.assertEqual(wallet._holds, [])
+        self.assertEqual(len(wallet._holds), 0)

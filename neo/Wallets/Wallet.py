@@ -646,7 +646,7 @@ class Wallet:
         # abstract
         pass
 
-    def ProcessBlocks(self, block_limit=10000):
+    def ProcessBlocks(self, block_limit=1000):
         """
         Method called on a loop to check the current height of the blockchain.  If the height of the blockchain
         is more than the current stored height in the wallet, we get the next block in line and
@@ -1206,6 +1206,23 @@ class Wallet:
             success |= res
 
         return success
+
+    def SignMessage(self, message, script_hash):
+        """
+        Sign a message with a specified script_hash.
+
+        Args:
+            message (str): a hex encoded message to sign
+            script_hash (UInt160): a bytearray (len 20).
+
+        Returns:
+            str: the signed message
+        """
+
+        keypair = self.GetKeyByScriptHash(script_hash)
+        prikey = bytes(keypair.PrivateKey)
+        res = Crypto.Default().Sign(message, prikey)
+        return res, keypair.PublicKey
 
     def GetSyncedBalances(self):
         """
