@@ -17,7 +17,6 @@ from twisted.internet.address import IPv4Address
 from mock import MagicMock
 from neo.api.JSONRPC.JsonRpcApi import JsonRpcApi
 from neo.Network.address import Address
-from unittest import skip
 
 
 class Endpoint:
@@ -98,6 +97,7 @@ class LeaderTestCase(WalletFixtureTestCase):
     @classmethod
     def tearDown(self):
         NodeLeader.Instance().Peers = []
+        NodeLeader.Instance().KNOWN_ADDRS = []
         NodeLeader.__LEAD = None
 
     def test_initialize(self):
@@ -106,7 +106,6 @@ class LeaderTestCase(WalletFixtureTestCase):
         self.assertEqual(leader.KNOWN_ADDRS, [])
         self.assertEqual(leader.UnconnectedPeers, [])
 
-    @skip("to be updated once new network code is approved")
     def test_peer_adding(self):
         leader = NodeLeader.Instance()
         Blockchain.Default()._block_cache = {'hello': 1}
@@ -123,58 +122,61 @@ class LeaderTestCase(WalletFixtureTestCase):
         def mock_disconnect(peer):
             return True
 
-        def mock_send_msg(node, message):
-            return True
-
         settings.set_max_peers(len(settings.SEED_LIST))
 
         with patch('twisted.internet.reactor.connectTCP', mock_connect_tcp):
             with patch('twisted.internet.reactor.callLater', mock_call_later):
                 with patch('neo.Network.NeoNode.NeoNode.Disconnect', mock_disconnect):
-                    with patch('neo.Network.NeoNode.NeoNode.SendSerializedMessage', mock_send_msg):
-                        leader.Start()
-                        self.assertEqual(len(leader.Peers), len(settings.SEED_LIST))
+                    with patch('neo.Network.NodeLeader.NodeLeader.start_peer_check_loop'):
+                        with patch('neo.Network.NodeLeader.NodeLeader.start_memcheck_loop'):
+                            with patch('neo.Network.NodeLeader.NodeLeader.start_blockheight_loop'):
+                                leader.Start()
+                                self.assertEqual(len(leader.Peers), len(settings.SEED_LIST))
 
-                        # now test adding another
-                        leader.RemoteNodePeerReceived('hello.com', 1234, 6)
+                                # now test adding another
+                                leader.RemoteNodePeerReceived('hello.com', 1234, 6)
+                                leader.SetupConnection('hello.com', 1234)
 
-                        # it shouldnt add anything so it doesnt go over max connected peers
-                        self.assertEqual(len(leader.Peers), len(settings.SEED_LIST))
+                                # it shouldnt add anything so it doesnt go over max connected peers
+                                self.assertEqual(len(leader.Peers), len(settings.SEED_LIST))
 
-                        # test adding peer
-                        peer = NeoNode()
-                        peer.endpoint = Endpoint('hellloo.com', 12344)
-                        leader.KNOWN_ADDRS.append(Address('hellloo.com:12344'))
-                        leader.AddConnectedPeer(peer)
-                        self.assertEqual(len(leader.Peers), len(settings.SEED_LIST))
+                                # test adding peer
+                                peer = NeoNode()
+                                peer.endpoint = Endpoint('hellloo.com', 12344)
+                                leader.KNOWN_ADDRS.append(Address('hellloo.com:12344'))
+                                leader.AddConnectedPeer(peer)
+                                self.assertEqual(len(leader.Peers), len(settings.SEED_LIST))
 
-                        # now get a peer
-                        peer = leader.Peers[0]
+                                # now get a peer and remove it
+                                peer = leader.Peers[0]
+                                leader.RemoveConnectedPeer(peer)
 
-                        leader.RemoveConnectedPeer(peer)
+                                # the connected peers should be 1 less than the seed_list
+                                self.assertEqual(len(leader.Peers), len(settings.SEED_LIST) - 1)
 
-                        # the connect peers should be 1 less than the seed_list
-                        self.assertEqual(len(leader.Peers), len(settings.SEED_LIST) - 1)
-                        # the known addresses should be equal the seed_list
-                        self.assertEqual(len(leader.KNOWN_ADDRS), len(settings.SEED_LIST))
+                                # the known addresses should be equal the number of peers we have connected
+                                self.assertEqual(len(leader.KNOWN_ADDRS), 2)
 
-                        # now test adding another
-                        leader.RemoteNodePeerReceived('hello.com', 1234, 6)
+                                # now test adding another
+                                leader.RemoteNodePeerReceived('hello.com', 1234, 6)
+                                leader.SetupConnection('hello.com', 1234)
 
-                        self.assertEqual(len(leader.Peers), len(settings.SEED_LIST))
+                                self.assertEqual(len(leader.Peers), len(settings.SEED_LIST))
 
-                        # now if we remove all peers, it should restart
-                        peers = leader.Peers[:]
-                        for peer in peers:
-                            leader.RemoveConnectedPeer(peer)
+                                # test restart
+                                peers = leader.Peers[:]
+                                for peer in peers:
+                                    leader.RemoveConnectedPeer(peer)
 
-                        # test reset
-                        # leader.ResetBlockRequestsAndCache()
-                        # self.assertEqual(Blockchain.Default()._block_cache, {})
+                                leader.Restart()
+                                # the number of connected peers should be zero because Restart skips the seedlist
+                                self.assertEqual(len(leader.Peers), 0)
+                                # the number of known addresses should still equal the number of peers we connected earlier
+                                self.assertEqual(len(leader.KNOWN_ADDRS), 3)
 
-                        # test shutdown
-                        leader.Shutdown()
-                        self.assertEqual(len(leader.Peers), 0)
+                                # test shutdown
+                                leader.Shutdown()
+                                self.assertEqual(len(leader.Peers), 0)
 
     def _generate_tx(self, amount):
         wallet = self.GetWallet1()
@@ -188,7 +190,6 @@ class LeaderTestCase(WalletFixtureTestCase):
         contract_tx.scripts = ctx.GetScripts()
         return contract_tx
 
-    @skip("to be updated once new network code is approved")
     def test_relay(self):
         leader = NodeLeader.Instance()
 
@@ -207,21 +208,24 @@ class LeaderTestCase(WalletFixtureTestCase):
         with patch('twisted.internet.reactor.connectTCP', mock_connect_tcp):
             with patch('twisted.internet.reactor.callLater', mock_call_later):
                 with patch('neo.Network.NeoNode.NeoNode.SendSerializedMessage', mock_send_msg):
-                    leader.Start()
+                    with patch('neo.Network.NodeLeader.NodeLeader.start_peer_check_loop'):
+                            with patch('neo.Network.NodeLeader.NodeLeader.start_memcheck_loop'):
+                                with patch('neo.Network.NodeLeader.NodeLeader.start_blockheight_loop'):
+                                    leader.Start()
 
-                    miner = MinerTransaction()
+                                    miner = MinerTransaction()
 
-                    res = leader.Relay(miner)
-                    self.assertFalse(res)
+                                    res = leader.Relay(miner)
+                                    self.assertFalse(res)
 
-                    tx = self._generate_tx(Fixed8.One())
+                                    tx = self._generate_tx(Fixed8.One())
 
-                    res = leader.Relay(tx)
-                    self.assertEqual(res, True)
+                                    res = leader.Relay(tx)
+                                    self.assertEqual(res, True)
 
-                    self.assertTrue(tx.Hash.ToBytes() in leader.MemPool.keys())
-                    res2 = leader.Relay(tx)
-                    self.assertFalse(res2)
+                                    self.assertTrue(tx.Hash.ToBytes() in leader.MemPool.keys())
+                                    res2 = leader.Relay(tx)
+                                    self.assertFalse(res2)
 
     def test_inventory_received(self):
 
@@ -301,3 +305,170 @@ class LeaderTestCase(WalletFixtureTestCase):
 
         self.assertEqual(
             len(list(map(lambda hash: "0x%s" % hash.decode('utf-8'), NodeLeader.Instance().MemPool.keys()))), 1)
+
+    def test_start_peer_check_loop(self):
+        leader = NodeLeader.Instance()
+
+        def mock_call_later(delay, method, *args):
+            method(*args)
+
+        def mock_connect_tcp(host, port, factory, timeout=120):
+            node = NeoNode()
+            node.endpoint = Endpoint(host, port)
+            leader.AddConnectedPeer(node)
+            return node
+
+        with patch('twisted.internet.reactor.connectTCP', mock_connect_tcp):
+            with patch('twisted.internet.reactor.callLater', mock_call_later):
+                    with patch('neo.Network.NodeLeader.NodeLeader.start_memcheck_loop'):
+                        with patch('neo.Network.NodeLeader.NodeLeader.start_blockheight_loop'):
+                            with patch('twisted.internet.task.LoopingCall') as mock_PeerCheckLoop:
+                                leader.Start()
+
+                                self.assertTrue(mock_PeerCheckLoop.called)
+
+                                # start peer check loop again to see it stop then start
+                                leader.start_peer_check_loop()
+
+                                self.assertTrue(mock_PeerCheckLoop.called)
+
+    def test_peercheckloop(self):
+
+        def mock_call_later(delay, method, *args):
+            method(*args)
+
+        def mock_connect_tcp(host, port, factory, timeout=120):
+            node = NeoNode()
+            node.endpoint = Endpoint(host, port)
+            leader.AddConnectedPeer(node)
+            return node
+
+        leader = NodeLeader.Instance()
+
+        # run PeerCheckLoop 3 times will cause NodeLeader to restart 
+        leader.PeerCheckLoop()
+        leader.PeerCheckLoop()
+        leader.PeerCheckLoop()
+
+        with patch('neo.Network.NodeLeader.NodeLeader.Restart') as mock_Restart:
+            leader.PeerCheckLoop()
+
+        self.assertTrue(mock_Restart.called)
+
+        with patch('twisted.internet.reactor.connectTCP', mock_connect_tcp):
+            with patch('twisted.internet.reactor.callLater', mock_call_later):
+                # test that a Peer with "" endpoint will be removed
+                peer = NeoNode()
+                peer.endpoint = ""
+                leader.Peers.append(peer)
+                self.assertEqual(len(leader.Peers), 1)
+
+                leader.PeerCheckLoop()
+                self.assertEqual(len(leader.Peers), 0)
+
+                # test that a peer with no running tasks will be told to start all tasks
+                peer = NeoNode()
+                peer.endpoint = Endpoint("hello.com", 1234)
+                leader.KNOWN_ADDRS.append(Address('helllo.com:1234'))
+                leader.AddConnectedPeer(peer)
+                peer.has_tasks_running = False
+
+                with patch('neo.Network.NeoNode.NeoNode.start_all_tasks') as mock_start_all_tasks:
+                    leader.PeerCheckLoop()
+
+                    self.assertTrue(mock_start_all_tasks.called)
+
+                # test operation of _check_for_queuing_possibilities and _process_connection_queue
+                leader.Peers = []
+
+                self.assertEqual(len(leader.Peers), 0)
+
+                leader.PeerCheckLoop()
+
+                self.assertEqual(len(leader.Peers), 1)
+
+                # now remove the peers and clear the queue and after three tries, NodeLeader should Restart
+                leader.Peers = []
+
+                self.assertEqual(len(leader.Peers), 0)
+
+                queued = leader.connection_queue[0]
+                leader.RemoveFromQueue(queued)
+
+                self.assertEqual(len(leader.connection_queue), 0)
+
+                with patch('neo.Network.NodeLeader.NodeLeader._check_for_queuing_possibilities'):
+                    with patch('neo.Network.NodeLeader.NodeLeader.Restart') as mock_Restart:
+                        leader.PeerCheckLoop()
+
+                        self.assertTrue(mock_Restart.called)
+
+    def test_start_memcheck_loop(self):
+        leader = NodeLeader.Instance()
+
+        def mock_call_later(delay, method, *args):
+            method(*args)
+
+        def mock_connect_tcp(host, port, factory, timeout=120):
+            node = NeoNode()
+            node.endpoint = Endpoint(host, port)
+            leader.AddConnectedPeer(node)
+            return node
+
+        with patch('twisted.internet.reactor.connectTCP', mock_connect_tcp):
+            with patch('twisted.internet.reactor.callLater', mock_call_later):
+                    with patch('neo.Network.NodeLeader.NodeLeader.start_blockheight_loop'):
+                        with patch('neo.Network.NodeLeader.NodeLeader.start_peer_check_loop'):
+                            with patch('twisted.internet.task.LoopingCall') as mock_MemcheckLoop:
+                                leader.Start()
+
+                                self.assertTrue(mock_MemcheckLoop.called)
+
+    def test_blockheight_check_loop(self):
+        leader = NodeLeader.Instance()
+
+        def mock_call_later(delay, method, *args):
+            method(*args)
+
+        def mock_connect_tcp(host, port, factory, timeout=120):
+            node = NeoNode()
+            node.endpoint = Endpoint(host, port)
+            leader.AddConnectedPeer(node)
+            return node
+
+        with patch('twisted.internet.reactor.connectTCP', mock_connect_tcp):
+            with patch('twisted.internet.reactor.callLater', mock_call_later):
+                    with patch('neo.Network.NodeLeader.NodeLeader.start_memcheck_loop'):
+                        with patch('neo.Network.NodeLeader.NodeLeader.start_peer_check_loop'):
+                            with patch('twisted.internet.task.LoopingCall') as mock_BlockheightcheckLoop:
+                                leader.Start()
+
+                                self.assertTrue(mock_BlockheightcheckLoop.call)
+
+                                # reduce the CurrentBlockheight by one
+                                leader.CurrentBlockheight = leader.CurrentBlockheight - 1
+
+                                # and the BlockheightCheck should increment to match the current blockheight
+                                leader.BlockheightCheck()
+
+                                self.assertEqual(leader.CurrentBlockheight, Blockchain.Default().Height)
+
+                                # now CurrentBlockheight == Blockchain.Default().Height so BlockheightCheck should disconnect all Peers
+                                with patch('neo.Network.NeoNode.NeoNode.Disconnect') as mock_Disconnect:
+                                    leader.BlockheightCheck()
+
+                                    self.assertTrue(mock_Disconnect.called)
+
+    def test_start_check_bcr_loop(self):
+        leader = NodeLeader.Instance()
+
+        with patch('twisted.internet.task.LoopingCall') as mock_check_bcr_catchup:
+            leader.start_check_bcr_loop()
+
+            self.assertTrue(mock_check_bcr_catchup.called)
+
+        # now start it again to see if it stops then starts
+        with patch('twisted.internet.task.LoopingCall') as mock_check_bcr_catchup:
+            leader.start_check_bcr_loop()
+
+            self.assertTrue(mock_check_bcr_catchup.called)
