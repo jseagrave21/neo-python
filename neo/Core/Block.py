@@ -1,5 +1,3 @@
-import sys
-from logzero import logger
 from neo.Network.Mixins import InventoryMixin
 from neo.Network.InventoryType import InventoryType
 from neo.Core.BlockBase import BlockBase
@@ -13,6 +11,9 @@ from neo.Core.Witness import Witness
 from neocore.Fixed8 import Fixed8
 from neo.Blockchain import GetBlockchain
 from neo.Core.Size import GetVarSize
+from neo.logging import log_manager
+
+logger = log_manager.getLogger()
 
 
 class Block(BlockBase, InventoryMixin):
@@ -123,11 +124,6 @@ class Block(BlockBase, InventoryMixin):
         return s
 
     def CalculatneNetFee(self, transactions):
-        #        Transaction[] ts = transactions.Where(p= > p.Type != TransactionType.MinerTransaction & & p.Type != TransactionType.ClaimTransaction).ToArray();
-        #        Fixed8 amount_in = ts.SelectMany(p= > p.References.Values.Where(o= > o.AssetId == Blockchain.SystemCoin.Hash)).Sum(p= > p.Value);
-        #        Fixed8 amount_out = ts.SelectMany(p= > p.Outputs.Where(o= > o.AssetId == Blockchain.SystemCoin.Hash)).Sum(p= > p.Value);
-        #        Fixed8 amount_sysfee = ts.Sum(p= > p.SystemFee);
-        #        return amount_in - amount_out - amount_sysfee;
         return 0
 
     def TotalFees(self):
@@ -150,6 +146,25 @@ class Block(BlockBase, InventoryMixin):
         """
         transactions = self.FullTransactions
         return transactions
+
+    def DeserializeForImport(self, reader):
+        """
+        Deserialize full object.
+
+        Args:
+            reader (neo.IO.BinaryReader):
+        """
+        super(Block, self).Deserialize(reader)
+
+        self.Transactions = []
+        transaction_length = reader.ReadVarInt()
+
+        for i in range(0, transaction_length):
+            tx = Transaction.DeserializeFrom(reader)
+            self.Transactions.append(tx)
+
+        if len(self.Transactions) < 1:
+            raise Exception('Invalid format %s ' % self.Index)
 
     def Deserialize(self, reader):
         """
@@ -219,6 +234,9 @@ class Block(BlockBase, InventoryMixin):
             if not tx:
                 raise Exception("Could not find transaction!\n Are you running code against a valid Blockchain instance?\n Tests that accesses transactions or size of a block but inherit from NeoTestCase instead of BlockchainFixtureTestCase will not work.")
             tx_list.append(tx)
+
+        if len(tx_list) < 1:
+            raise Exception("Invalid block, no transactions found for block %s " % block.Index)
 
         block.Transactions = tx_list
 

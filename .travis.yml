@@ -8,20 +8,23 @@ services:
 
 cache:
   pip: true
-  directories:
-    - $HOME/.neopython/fixtures/
 
 addons:
   apt:
     packages:
-    - libleveldb-dev
-    - libsqlite3-dev
+      - libleveldb-dev
+      - libsqlite3-dev
 
 # command to install dependencies
 install:
   - pip install -e .
   - pip install coveralls
-  - pip install -e git+https://github.com/CityOfZion/neo-boa.git@development#egg=neo-boa
+  - yes | pip uninstall neo-boa neocore
+  - pip install -e git+https://github.com/CityOfZion/neo-boa@development#egg=neo-boa
+  - pip install -e git+https://github.com/CityOfZion/neo-python-core@master#egg=neocore
+
+env:
+  - NEOPYTHON_UNITTEST=1
 
 # command to run tests
 script:
@@ -32,7 +35,7 @@ script:
   - python neo/bin/prompt.py --version
 
 after_success:
-    coveralls
+  coveralls
 
 deploy:
   # Deploy to PyPI

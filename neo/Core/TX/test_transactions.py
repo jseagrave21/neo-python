@@ -1,6 +1,8 @@
 from neo.Utils.NeoTestCase import NeoTestCase
+from neo.Core.Helper import Helper
 from neo.Core.TX.MinerTransaction import MinerTransaction
 from neo.Core.TX.Transaction import Transaction, TransactionType
+from neo.Core.State.AssetState import AssetState
 from neocore.IO.BinaryWriter import BinaryWriter
 from neocore.IO.BinaryReader import BinaryReader
 from neocore.Fixed8 import Fixed8
@@ -8,6 +10,7 @@ from neo.IO.MemoryStream import MemoryStream, StreamManager
 import binascii
 import os
 from neo.Settings import settings
+from mock import patch
 
 
 class TransactionTestCase(NeoTestCase):
@@ -27,7 +30,6 @@ class TransactionTestCase(NeoTestCase):
     tx_vout = []
 
     def test_tx_deserialize(self):
-
         ms = MemoryStream(self.tx_raw_hex)
 
         reader = BinaryReader(ms)
@@ -59,7 +61,6 @@ class TransactionTestCase(NeoTestCase):
     ctx_id = b'4feb0081f9425cab84269127bef0a871a84d4408f09923d17ebb257cd231b362'
 
     def test_contract_tx_deserialize(self):
-
         ms = MemoryStream(binascii.unhexlify(self.ctx_raw))
 
         reader = BinaryReader(ms)
@@ -74,7 +75,6 @@ class TransactionTestCase(NeoTestCase):
     pb_hash = b'5467a1fc8723ceffa8e5ee59399b02eea1df6fbaa53768c6704b90b960d223fa'
 
     def test_publish_tx_deserialize(self):
-
         ms = MemoryStream(binascii.unhexlify(self.pb_raw))
 
         reader = BinaryReader(ms)
@@ -90,8 +90,8 @@ class TransactionTestCase(NeoTestCase):
         self.assertEqual(contract['description'], 'Lock your assets until a timestamp.')
 
         self.assertEqual(contract['code']['hash'], '0xffbd1a7ad1e2348b6b3822426f364bfb4bcce3b9')
-        self.assertEqual(contract['code']['returntype'], 1)
-        self.assertEqual(contract['code']['parameters'], '020500')
+        self.assertEqual(contract['code']['returntype'], "Boolean")
+        self.assertEqual(contract['code']['parameters'], ['Integer', 'ByteArray', 'Signature'])
         self.assertEqual(Fixed8.FromDecimal(settings.ALL_FEES['PublishTransaction']), tx.SystemFee())
 
     ir = b'd100644011111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111081234567890abcdef0415cd5b0769cc4ee2f1c9f4e0782756dabf246d0a4fe60a035400000000'
@@ -111,7 +111,6 @@ class TransactionTestCase(NeoTestCase):
     mrh = b'4c68669a54fa247d02545cff9d78352cb4a5059de7b3cd6ba82efad13953c9b9'
 
     def test_miner_tx(self):
-
         ms = MemoryStream(binascii.unhexlify(self.mr))
 
         reader = BinaryReader(ms)
@@ -124,7 +123,6 @@ class TransactionTestCase(NeoTestCase):
     rrid = b'0c092117b4ba47b81001712425e6e7f760a637695eaf23741ba335925b195ecd'
 
     def test_register_tx(self):
-
         ms = MemoryStream(binascii.unhexlify(self.rr))
 
         reader = BinaryReader(ms)
@@ -137,7 +135,7 @@ class TransactionTestCase(NeoTestCase):
         self.assertEqual(asset['admin'], 'ARFe4mTKRTETerRoMsyzBXoPt2EKBvBXFX')
         self.assertEqual(asset['name'], '[{"lang":"zh-CN","name":"TestCoin"}]')
         self.assertEqual(asset['precision'], 8)
-        self.assertEquals(Fixed8.FromDecimal(settings.ALL_FEES['RegisterTransaction']), tx.SystemFee())
+        self.assertEqual(Fixed8.FromDecimal(settings.ALL_FEES['RegisterTransaction']), tx.SystemFee())
 
     cr = b'800001f012e99481e4bb93e59088e7baa6e6b58be8af9502f8e0bc69b6af579e69a56d3d3d559759cdb848cb55b54531afc6e3322c85badf08002c82c09c5b49d10cd776c8679789ba98d0b0236f0db4dc67695a1eb920a646b9000001cd5e195b9235a31b7423af5e6937a660f7e7e62524710110b847bab41721090c0061c2540cd1220067f97110a66136d38badc7b9f88eab013027ce490241400bd2e921cee90c8de1a192e61e33eb8980a3dc00c388ee9aac0712178cc8fceed8bb59788f7caf3c4dc082abcdaaa49772fda86db4ceea243bda31bcde9b8a0b3c21034b44ed9c8a88fb2497b6b57206cc08edd42c5614bd1fee790e5b795dee0f4e1104182f145967cc4ee2f1c9f4e0782756dabf246d0a4fe60a035441402fe3e20c303e26c3817fed6fc7db8edde4ac62b16eee796c01c2b59e382b7ddfc82f0b36c7f7520821c7b72b9aff50ae27a016961f1ef1dade9cafa85655380f2321034b44ed9c8a88fb2497b6b57206cc08edd42c5614bd1fee790e5b795dee0f4e11ac'
     cr2 = b'800001f012e99481e4bb93e59088e7baa6e6b58be8af9502f8e0bc69b6af579e69a56d3d3d559759cdb848cb55b54531afc6e3322c85badf08002c82c09c5b49d10cd776c8679789ba98d0b0236f0db4dc67695a1eb920a646b9000001cd5e195b9235a31b7423af5e6937a660f7e7e62524710110b847bab41721090c0061c2540cd1220067f97110a66136d38badc7b9f88eab013027ce49'
@@ -145,7 +143,6 @@ class TransactionTestCase(NeoTestCase):
     crid = b'e4d2ea5df2adf77df91049beccbb16f98863b93a16439c60381eac1f23bff178'
 
     def test_contract_tx_again(self):
-
         ms = MemoryStream(binascii.unhexlify(self.cr))
 
         reader = BinaryReader(ms)
@@ -159,7 +156,6 @@ class TransactionTestCase(NeoTestCase):
     p2id = b'514157940a3e31b087891c5e8ed362721f0a7f3dda3f80b7a3fe618d02b7d3d3'
 
     def test_pub_two(self):
-
         ms = MemoryStream(binascii.unhexlify(self.p2))
 
         reader = BinaryReader(ms)
@@ -174,7 +170,6 @@ class TransactionTestCase(NeoTestCase):
     eid = b'988832f693785dcbcb8d5a0e9d5d22002adcbfb1eb6bbeebf8c494fff580e147'
 
     def test_enrollment_tx(self):
-
         ms = MemoryStream(binascii.unhexlify(self.eraw))
 
         reader = BinaryReader(ms)
@@ -201,7 +196,6 @@ class TransactionTestCase(NeoTestCase):
         path = '%s/fixtures/bigtx.txt' % os.getcwd()
 
         with open(path, 'rb') as f:
-
             blockraw = f.read().strip()
 
             unhex = binascii.unhexlify(blockraw)
@@ -212,3 +206,70 @@ class TransactionTestCase(NeoTestCase):
             tx = Transaction.DeserializeFrom(reader)
 
             self.assertEqual(tx.Hash.ToString(), self.giant_tx_hash)
+
+    rtx = b'800002900e5468697320697320612074657374900e546869732069732061207465737400019b7cffdaa674beae0f930ebe6085af9093e5fe56b34a5c220ccdcf6efc326fc500a3e111000000001cc9c05cefffe6cdd7b182816a9152ec218d2ec000'
+
+    def test_GetScriptHashesForVerifying_invalid_operation(self):
+        # test a normal tx with a bad assetId
+        ms = MemoryStream(binascii.unhexlify(self.rtx))
+        reader = BinaryReader(ms)
+        tx = Transaction.DeserializeFrom(reader)
+
+        with self.assertRaises(Exception) as e:
+            tx.GetScriptHashesForVerifying()
+
+        self.assertTrue("Invalid operation" in str(e.exception))
+
+        # test a raw tx with a bad assetId
+        ms = MemoryStream(binascii.unhexlify(self.rtx))
+        reader = BinaryReader(ms)
+        tx = Transaction.DeserializeFrom(reader)
+        tx.raw_tx = True
+
+        with self.assertRaises(Exception) as e:
+            tx.GetScriptHashesForVerifying()
+
+        self.assertTrue("Invalid operation" in str(e.exception))
+
+    drtx = b'800001900e546869732069732061207465737400019b7cffdaa674beae0f930ebe6085af9093e5fe56b34a5c220ccdcf6efc336fc500a3e111000000001cc9c05cefffe6cdd7b182816a9152ec218d2ec000'
+
+    def test_GetScriptHashesForVerifying_DutyFlag(self):
+        # test a raw tx
+        ms = MemoryStream(binascii.unhexlify(self.rtx))
+        reader = BinaryReader(ms)
+        tx = Transaction.DeserializeFrom(reader)
+        tx.raw_tx = True
+
+        # create the mocked asset
+        mock_asset = AssetState()
+        mock_asset.AssetType = 0x80
+
+        with patch("neo.Core.TX.Transaction.Helper.StaticAssetState", return_value=mock_asset):
+            res = tx.GetScriptHashesForVerifying()
+
+        self.assertTrue(type(res), list)
+        self.assertEqual(res[0], Helper.AddrStrToScriptHash("AJQ6FoaSXDFzA6wLnyZ1nFN7SGSN2oNTc3"))
+
+    ntx = b'80000190274d792072617720636f6e7472616374207472616e73616374696f6e206465736372697074696f6e01949354ea0a8b57dfee1e257a1aedd1e0eea2e5837de145e8da9c0f101bfccc8e0100029b7cffdaa674beae0f930ebe6085af9093e5fe56b34a5c220ccdcf6efc336fc500a3e11100000000ea610aa6db39bd8c8556c9569d94b5e5a5d0ad199b7cffdaa674beae0f930ebe6085af9093e5fe56b34a5c220ccdcf6efc336fc5004f2418010000001cc9c05cefffe6cdd7b182816a9152ec218d2ec000'
+    gtx = b'80000190274d792072617720636f6e7472616374207472616e73616374696f6e206465736372697074696f6e01949354ea0a8b57dfee1e257a1aedd1e0eea2e5837de145e8da9c0f101bfccc8e010002e72d286979ee6cb1b7e65dfddfb2e384100b8d148e7758de42e4168b71792c6000a3e11100000000ea610aa6db39bd8c8556c9569d94b5e5a5d0ad19e72d286979ee6cb1b7e65dfddfb2e384100b8d148e7758de42e4168b71792c60e05c9041000000001cc9c05cefffe6cdd7b182816a9152ec218d2ec000'
+
+    def test_GetScriptHashesForVerifying_neo_gas(self):
+        # test a raw tx using neo
+        ms = MemoryStream(binascii.unhexlify(self.ntx))
+        reader = BinaryReader(ms)
+        tx = Transaction.DeserializeFrom(reader)
+        tx.raw_tx = True
+
+        res = tx.GetScriptHashesForVerifying()
+
+        self.assertTrue(type(res), list)
+
+        # test a raw tx using gas
+        ms = MemoryStream(binascii.unhexlify(self.gtx))
+        reader = BinaryReader(ms)
+        tx = Transaction.DeserializeFrom(reader)
+        tx.raw_tx = True
+
+        res = tx.GetScriptHashesForVerifying()
+
+        self.assertTrue(type(res), list)

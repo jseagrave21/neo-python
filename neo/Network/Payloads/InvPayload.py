@@ -1,10 +1,11 @@
-import sys
 import binascii
-from logzero import logger
 from neocore.UInt256 import UInt256
 from neocore.IO.Mixins import SerializableMixin
 from neo.Core.Size import Size as s
 from neo.Core.Size import GetVarSize
+from neo.logging import log_manager
+
+logger = log_manager.getLogger()
 
 
 class InvPayload(SerializableMixin):
@@ -22,11 +23,6 @@ class InvPayload(SerializableMixin):
         self.Type = type
         self.Hashes = hashes if hashes else []
 
-    #    @property
-    #    def DistinctHashes(self):
-    # return [h.ToBytes() for h in self.Hashes]
-    #        return set(self.Hashes)
-
     def Size(self):
         """
         Get the total size in bytes of the object.
@@ -34,7 +30,9 @@ class InvPayload(SerializableMixin):
         Returns:
             int: size.
         """
-        corrected_hashes = list(map(lambda i: UInt256(data=binascii.unhexlify(i)), self.Hashes))
+        if len(self.Hashes) > 0:
+            if not isinstance(self.Hashes[0], UInt256):
+                corrected_hashes = list(map(lambda i: UInt256(data=binascii.unhexlify(i)), self.Hashes))
         return s.uint8 + GetVarSize(corrected_hashes)
 
     def Deserialize(self, reader):
@@ -59,10 +57,9 @@ class InvPayload(SerializableMixin):
         """
         try:
             writer.WriteByte(self.Type)
-            #            logger.info("WILL WRITE HASHES %s " % self.Hashes)
             writer.WriteHashes(self.Hashes)
         except Exception as e:
-            logger.error("COULD NOT WRITE INVENTORY HASHES %s " % e)
+            logger.error(f"COULD NOT WRITE INVENTORY HASHES ({self.Type} {self.Hashes}) {e}")
 
     def ToString(self):
         """

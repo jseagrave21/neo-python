@@ -7,8 +7,10 @@ from neo.IO.MemoryStream import StreamManager
 from neo.SmartContract.ContractParameter import ContractParameter, ContractParameterType
 from neocore.IO.Mixins import SerializableMixin
 import binascii
-from logzero import logger
 from neo.Core.State.ContractState import ContractState
+from neo.logging import log_manager
+
+logger = log_manager.getLogger('vm')
 
 
 class SmartContractEvent(SerializableMixin):
@@ -29,7 +31,7 @@ class SmartContractEvent(SerializableMixin):
     in the smart contract.
     """
     RUNTIME_NOTIFY = "SmartContract.Runtime.Notify"  # payload: object[]
-    RUNTIME_LOG = "SmartContract.Runtime.Log"        # payload: bytes
+    RUNTIME_LOG = "SmartContract.Runtime.Log"  # payload: bytes
 
     EXECUTION = "SmartContract.Execution.*"
     EXECUTION_INVOKE = "SmartContract.Execution.Invoke"
@@ -113,7 +115,7 @@ class SmartContractEvent(SerializableMixin):
                 token.Deserialize(reader)
                 self.token = token
             except Exception as e:
-                logger.error("Couldnt deserialize token %s " % e)
+                logger.debug("Couldnt deserialize token %s " % e)
 
     def __str__(self):
         return "SmartContractEvent(event_type=%s, event_payload=%s, contract_hash=%s, block_number=%s, tx_hash=%s, execution_success=%s, test_mode=%s)" \
@@ -159,6 +161,7 @@ class SmartContractEvent(SerializableMixin):
 
         if self.event_type in [SmartContractEvent.CONTRACT_CREATED, SmartContractEvent.CONTRACT_MIGRATED]:
             jsn['contract'] = self.contract.ToJson()
+            del jsn['contract']['script']
 
         if self.token:
             jsn['token'] = self.token.ToJson()
@@ -174,7 +177,6 @@ class NotifyType:
 
 
 class NotifyEvent(SmartContractEvent):
-
     notify_type = None
 
     addr_to = None
@@ -228,9 +230,9 @@ class NotifyEvent(SmartContractEvent):
                 if plen == 4 and self.notify_type in [NotifyType.TRANSFER, NotifyType.APPROVE]:
                     if payload[1].Value is None:
                         self.addr_from = empty
-                        logger.info("Using contract addr from address %s " % self.event_payload)
+                        logger.debug("Using contract addr from address %s " % self.event_payload)
                     elif payload[1].Value is False:
-                        logger.info("Using contract addr from address %s " % self.event_payload)
+                        logger.debug("Using contract addr from address %s " % self.event_payload)
                         self.addr_from = empty
                     else:
                         self.addr_from = UInt160(data=payload[1].Value) if len(payload[1].Value) == 20 else empty
@@ -251,12 +253,13 @@ class NotifyEvent(SmartContractEvent):
                     self.is_standard_notify = True
 
             except Exception as e:
-                logger.info("Could not determine notify event: %s %s" % (e, self.event_payload))
+                logger.debug("Could not determine notify event: %s %s" % (e, self.event_payload))
 
         elif self.event_payload.Type == ContractParameterType.String:
             self.notify_type = self.event_payload.Value
-#        else:
-#            logger.debug("NOTIFY %s %s" % (self.event_payload.Type, self.event_payload.Value))
+
+    #        else:
+    #            logger.debug("NOTIFY %s %s" % (self.event_payload.Type, self.event_payload.Value))
 
     def SerializePayload(self, writer):
 
@@ -266,17 +269,20 @@ class NotifyEvent(SmartContractEvent):
             writer.WriteUInt160(self.addr_from)
             writer.WriteUInt160(self.addr_to)
 
-            if self.Amount < 0xffffffffffffffff:
+            if self.Amount < 0:
+                logger.debug("Transfer Amount less than 0")
+                writer.WriteVarInt(0)
+            elif self.Amount < 0xffffffffffffffff:
                 writer.WriteVarInt(self.amount)
             else:
-                logger.warn("Writing Payload value amount greater than ulong long is not allowed.  Setting to ulong long max")
+                logger.debug("Writing Payload value amount greater than ulong long is not allowed.  Setting to ulong long max")
                 writer.WriteVarInt(0xffffffffffffffff)
 
     def DeserializePayload(self, reader):
         try:
             self.notify_type = reader.ReadVarString()
         except Exception as e:
-            logger.info("Could not read notify type")
+            logger.debug("Could not read notify type")
 
         if self.notify_type in [NotifyType.REFUND, NotifyType.APPROVE, NotifyType.TRANSFER]:
             try:
@@ -285,12 +291,12 @@ class NotifyEvent(SmartContractEvent):
                 self.amount = reader.ReadVarInt()
                 self.is_standard_notify = True
             except Exception as e:
-                logger.info("Could not transfer notification data")
+                logger.debug("Could not transfer notification data")
 
     def ToJson(self):
         jsn = super(NotifyEvent, self).ToJson()
         jsn['notify_type'] = self.Type
         jsn['addr_to'] = self.AddressTo
         jsn['addr_from'] = self.AddressFrom
-        jsn['amount'] = self.Amount
+        jsn['amount'] = "%s" % self.Amount
         return jsn

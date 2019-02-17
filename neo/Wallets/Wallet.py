@@ -11,10 +11,8 @@ from base58 import b58decode
 from decimal import Decimal
 from Crypto import Random
 from Crypto.Cipher import AES
-from logzero import logger
 from threading import RLock
-
-from neo.Core.TX.Transaction import TransactionType, TransactionOutput
+from neo.Core.TX.Transaction import TransactionType, TransactionOutput, TXFeeError
 from neo.Core.State.CoinState import CoinState
 from neo.Core.Blockchain import Blockchain
 from neo.Core.CoinReference import CoinReference
@@ -24,14 +22,16 @@ from neocore.Cryptography.Crypto import Crypto
 from neo.Wallets.AddressState import AddressState
 from neo.Wallets.Coin import Coin
 from neocore.KeyPair import KeyPair
-from neo.Wallets.NEP5Token import NEP5Token
+from neo.Wallets import NEP5Token
 from neo.Settings import settings
-from neo.Implementations.Blockchains.LevelDB.LevelDBBlockchain import LevelDBBlockchain
 from neocore.Fixed8 import Fixed8
 from neocore.UInt160 import UInt160
 from neocore.UInt256 import UInt256
 from neo.Core.Helper import Helper
 from neo.Wallets.utils import to_aes_key
+from neo.logging import log_manager
+
+logger = log_manager.getLogger()
 
 
 class Wallet:
@@ -47,10 +47,6 @@ class Wallet:
     _coins = {}  # holds Coin References
 
     _current_height = 0
-
-    _db_path = _path
-
-    _indexedDB = None
 
     _vin_exclude = None
 
@@ -82,12 +78,6 @@ class Wallet:
             self._contracts = {}
             self._coins = {}
 
-            if Blockchain.Default() is None:
-                self._indexedDB = LevelDBBlockchain(settings.chain_leveldb_path)
-                Blockchain.RegisterBlockchain(self._indexedDB)
-            else:
-                self._indexedDB = Blockchain.Default()
-
             self._current_height = 0
 
             self.BuildDatabase()
@@ -111,8 +101,7 @@ class Wallet:
                 raise Exception("Password hash not found in database")
 
             hkey = hashlib.sha256(passwordKey).digest()
-
-            if self.LoadStoredData('MigrationState') != '1':
+            if int(self.LoadStoredData('MigrationState')) != 1:
                 raise Exception("This wallet is currently vulnerable. Please "
                                 "execute the \"reencrypt_wallet.py\" script "
                                 "on this wallet before continuing")
@@ -231,7 +220,7 @@ class Wallet:
         Test if the wallet contains the supplied public key.
 
         Args:
-            public_key (edcsa.Curve.point): a public key to test for its existance. i.e. KeyPair.PublicKey
+            public_key (edcsa.Curve.point): a public key to test for its existance. e.g. KeyPair.PublicKey
 
         Returns:
             bool: True if exists, False otherwise.
@@ -604,7 +593,7 @@ class Wallet:
         """
         total = Fixed8(0)
 
-        if type(asset_id) is NEP5Token:
+        if type(asset_id) is NEP5Token.NEP5Token:
             return self.GetTokenBalance(asset_id, watch_only)
 
         for coin in self.GetCoins():
@@ -667,6 +656,8 @@ class Wallet:
 
                 if block is not None:
                     self.ProcessNewBlock(block)
+                else:
+                    self._current_height += 1
 
                 blockcount += 1
 
@@ -700,7 +691,7 @@ class Wallet:
 
                     if state & AddressState.InWallet > 0:
 
-                        # if its in the wallet, check to see if the coin exists yet
+                        # if it's in the wallet, check to see if the coin exists yet
                         key = CoinReference(tx.Hash, index)
 
                         # if it exists, update it, otherwise create a new one
@@ -758,13 +749,13 @@ class Wallet:
             traceback.print_exc()
             logger.error("could not process %s " % e)
 
-    def Rebuild(self):
+    def Rebuild(self, start_block=0):
         """
         Sets the current height to 0 and now `ProcessBlocks` will start from
         the beginning of the blockchain.
         """
         self._coins = {}
-        self._current_height = 0
+        self._current_height = start_block
 
     def OnProcessNewBlock(self, block, added, changed, deleted):
         # abstract
@@ -849,22 +840,26 @@ class Wallet:
             address (str): a base58 encoded address.
 
         Raises:
-            ValuesError: if an invalid address is supplied or the coin version is incorrect.
-            Exception: if the address checksum fails.
+            ValuesError: if an invalid address is supplied or the coin version is incorrect
+            Exception: if the address string does not start with 'A' or the checksum fails
 
         Returns:
             UInt160: script hash.
         """
-        data = b58decode(address)
-        if len(data) != 25:
-            raise ValueError('Not correct Address, wrong length.')
-        if data[0] != self.AddressVersion:
-            raise ValueError('Not correct Coin Version')
+        if len(address) == 34:
+            if address[0] == 'A':
+                data = b58decode(address)
+                if data[0] != self.AddressVersion:
+                    raise ValueError('Not correct Coin Version')
 
-        checksum = Crypto.Default().Hash256(data[:21])[:4]
-        if checksum != data[21:]:
-            raise Exception('Address format error')
-        return UInt160(data=data[1:21])
+                checksum = Crypto.Default().Hash256(data[:21])[:4]
+                if checksum != data[21:]:
+                    raise Exception('Address format error')
+                return UInt160(data=data[1:21])
+            else:
+                raise Exception('Address format error')
+        else:
+            raise ValueError('Not correct Address, wrong length.')
 
     def ValidatePassword(self, password):
         """
@@ -1003,7 +998,8 @@ class Wallet:
                         use_standard=False,
                         watch_only_val=0,
                         exclude_vin=None,
-                        use_vins_for_asset=None):
+                        use_vins_for_asset=None,
+                        skip_fee_calc=False):
         """
         This method is used to to calculate the necessary TransactionInputs (CoinReferences) and TransactionOutputs to
         be used when creating a transaction that involves an exchange of system assets, ( NEO, Gas, etc ).
@@ -1017,6 +1013,7 @@ class Wallet:
             watch_only_val (int): 0 or CoinState.WATCH_ONLY, if present only choose coins that are in a WatchOnly address.
             exclude_vin (list): A list of CoinReferences to NOT use in the making of this tx.
             use_vins_for_asset (list): A list of CoinReferences to use.
+            skip_fee_calc (bool): If true, the network fee calculation and verification will be skipped.
 
         Returns:
             tx: (Transaction) Returns the transaction with oupdated inputs and outputs.
@@ -1030,7 +1027,7 @@ class Wallet:
         if not tx.inputs:
             tx.inputs = []
 
-        fee = fee + (tx.SystemFee() * Fixed8.FD())
+        fee = fee + tx.SystemFee()
 
         #        pdb.set_trace()
 
@@ -1041,7 +1038,8 @@ class Wallet:
                 sum = Fixed8(0)
                 for item in group:
                     sum = sum + item.Value
-                paytotal[key] = sum
+                cur_val = paytotal.get(key, Fixed8.Zero())
+                paytotal[key] = cur_val + sum
         else:
             paytotal = {}
 
@@ -1077,8 +1075,7 @@ class Wallet:
                     return None
 
                 else:
-                    logger.error("insufficient funds for asset id: %s " % key)
-                    return None
+                    raise ValueError(f"insufficient funds for asset id: {key}")
 
         input_sums = {}
 
@@ -1107,6 +1104,14 @@ class Wallet:
 
         tx.inputs = inputs
         tx.outputs = tx.outputs + new_outputs
+
+        # calculate and verify the required network fee for the tx
+        if tx.Size() > settings.MAX_FREE_TX_SIZE and not skip_fee_calc:
+            req_fee = Fixed8.FromDecimal(settings.FEE_PER_EXTRA_BYTE * (tx.Size() - settings.MAX_FREE_TX_SIZE))
+            if req_fee < settings.LOW_PRIORITY_THRESHOLD:
+                req_fee = settings.LOW_PRIORITY_THRESHOLD
+            if fee < req_fee:
+                raise TXFeeError(f'Transaction cancelled. The tx size ({tx.Size()}) exceeds the max free tx size ({settings.MAX_FREE_TX_SIZE}).\nA network fee of {req_fee.ToString()} GAS is required.')
 
         return tx
 
@@ -1192,6 +1197,8 @@ class Wallet:
 
             contract = self.GetContract(hash)
             if contract is None:
+                logger.info(
+                    f"Cannot find key belonging to script_hash {hash}. Make sure the source address you're trying to sign the transaction for is imported in the wallet.")
                 continue
 
             key = self.GetKeyByScriptHash(hash)
@@ -1239,7 +1246,7 @@ class Wallet:
                 bc_asset = Blockchain.Default().GetAssetState(asset.ToBytes())
                 total = self.GetBalance(asset).value / Fixed8.D
                 balances.append((bc_asset.GetName(), total))
-            elif type(asset) is NEP5Token:
+            elif type(asset) is NEP5Token.NEP5Token:
                 balances.append((asset.symbol, self.GetBalance(asset)))
         return balances
 

@@ -253,6 +253,8 @@ class Transaction(InventoryMixin):
 
     withdraw_hold = None
 
+    raw_tx = False
+
     """docstring for Transaction"""
 
     def __init__(self, inputs=[], outputs=[], attributes=[], scripts=[]):
@@ -716,7 +718,10 @@ class Transaction(InventoryMixin):
                     hashes.add(UInt160(data=attr.Data))
 
         for key, group in groupby(self.outputs, lambda p: p.AssetId):
-            asset = GetBlockchain().GetAssetState(key.ToBytes())
+            if self.raw_tx:
+                asset = Helper.StaticAssetState(key)
+            else:
+                asset = GetBlockchain().GetAssetState(key.ToBytes())
             if asset is None:
                 raise Exception("Invalid operation")
 
@@ -769,3 +774,8 @@ class ContractTransaction(Transaction):
         """
         super(ContractTransaction, self).__init__(*args, **kwargs)
         self.Type = TransactionType.ContractTransaction
+
+
+class TXFeeError(Exception):
+    """Provide user-friendly feedback for transaction fee errors."""
+    pass

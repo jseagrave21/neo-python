@@ -4,15 +4,20 @@ from neocore.Fixed8 import Fixed8
 from neo.Core.Helper import Helper
 from neo.Core.Blockchain import Blockchain
 from neo.Wallets.Coin import CoinState
-from neo.Core.TX.Transaction import TransactionInput
 from neo.Core.TX.TransactionAttribute import TransactionAttribute, TransactionAttributeUsage
 from neo.SmartContract.ContractParameter import ContractParameterType
-from neocore.UInt256 import UInt256
 from neocore.Cryptography.ECCurve import ECDSA
 from decimal import Decimal
-from logzero import logger
-import json
 from prompt_toolkit.shortcuts import PromptSession
+from neo.logging import log_manager
+from neo.Wallets import NEP5Token
+from neocore.Cryptography.Crypto import Crypto
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from neo.Wallets.Wallet import Wallet
+
+logger = log_manager.getLogger()
 
 
 def get_asset_attachments(params):
@@ -85,13 +90,14 @@ def get_asset_id(wallet, asset_str):
 
 
 def get_asset_amount(amount, assetId):
-    f8amount = Fixed8.TryParse(amount)
+    f8amount = Fixed8.TryParse(amount, require_positive=True)
     if f8amount is None:
         print("invalid amount format")
+        return False
 
     elif f8amount.value % pow(10, 8 - Blockchain.Default().GetAssetState(assetId.ToBytes()).Precision) != 0:
         print("incorrect amount precision")
-        return None
+        return False
 
     return f8amount
 
@@ -116,34 +122,38 @@ def get_withdraw_from_watch_only(wallet, scripthash_from):
 
 
 def get_from_addr(params):
-    to_remove = []
     from_addr = None
     for item in params:
-        if '--from-addr=' in item:
-            to_remove.append(item)
-            try:
-                from_addr = item.replace('--from-addr=', '')
-            except Exception as e:
-                pass
-    for item in to_remove:
-        params.remove(item)
-
+        if '--from-addr' in item:
+            params.remove(item)
+            from_addr = item.replace('--from-addr=', '')
     return params, from_addr
 
 
+def get_change_addr(params):
+    change_addr = None
+    for item in params:
+        if '--change-addr' in item:
+            params.remove(item)
+            change_addr = item.replace('--change-addr=', '')
+    return params, change_addr
+
+
+def get_to_addr(params):
+    to_addr = None
+    for item in params:
+        if '--to-addr' in item:
+            params.remove(item)
+            to_addr = item.replace('--to-addr=', '')
+    return params, to_addr
+
+
 def get_fee(params):
-    to_remove = []
     fee = None
     for item in params:
         if '--fee=' in item:
-            to_remove.append(item)
-            try:
-                fee = get_asset_amount(item.replace('--fee=', ''), Blockchain.SystemCoin().Hash)
-            except Exception as e:
-                pass
-    for item in to_remove:
-        params.remove(item)
-
+            params.remove(item)
+            fee = get_asset_amount(item.replace('--fee=', ''), Blockchain.SystemCoin().Hash)
     return params, fee
 
 
@@ -155,11 +165,10 @@ def get_parse_addresses(params):
 
 
 def get_tx_attr_from_args(params):
-    to_remove = []
     tx_attr_dict = []
     for item in params:
         if '--tx-attr=' in item:
-            to_remove.append(item)
+            params.remove(item)
             try:
                 attr_str = item.replace('--tx-attr=', '')
 
@@ -177,8 +186,6 @@ def get_tx_attr_from_args(params):
                     logger.error("Invalid transaction attribute specification: %s " % type(tx_attr_obj))
             except Exception as e:
                 logger.error("Could not parse json from tx attrs: %s " % e)
-    for item in to_remove:
-        params.remove(item)
 
     return params, tx_attr_dict
 
@@ -283,27 +290,6 @@ def lookup_addr_str(wallet, addr):
         print(e)
 
 
-def parse_hold_vins(results):
-    holds = results[0].GetByteArray()
-    holdlen = len(holds)
-    numholds = int(holdlen / 33)
-
-    vins = []
-    for i in range(0, numholds):
-        hstart = i * 33
-        hend = hstart + 33
-        item = holds[hstart:hend]
-
-        vin_index = item[0]
-        vin_tx_id = UInt256(data=item[1:])
-
-        t_input = TransactionInput(prevHash=vin_tx_id, prevIndex=vin_index)
-
-        vins.append(t_input)
-
-    return vins
-
-
 def string_from_fixed8(amount, decimals):
     precision_mult = pow(10, decimals)
     amount = Decimal(amount) / Decimal(precision_mult)
@@ -325,8 +311,13 @@ def gather_param(index, param_type, do_continue=True):
     prompt_message = '[Param %s] %s input: ' % (index, ptype.name)
 
     try:
-
         result = get_input_prompt(prompt_message)
+    except Exception as e:
+        print(str(e))
+        # no results, abort True
+        return None, True
+
+    try:
 
         if ptype == ContractParameterType.String:
             return str(result), False
@@ -363,3 +354,42 @@ def gather_param(index, param_type, do_continue=True):
             return gather_param(index, param_type, do_continue)
 
     return None, True
+
+
+def get_token(wallet: 'Wallet', token_str: str) -> 'NEP5Token.NEP5Token':
+    """
+    Try to get a NEP-5 token based on the symbol or script_hash
+
+    Args:
+        wallet: wallet instance
+        token_str: symbol or script_hash (accepts script hash with or without 0x prefix)
+    Raises:
+        ValueError: if token is not found
+
+    Returns:
+        NEP5Token instance if found.
+    """
+    if token_str.startswith('0x'):
+        token_str = token_str[2:]
+
+    token = None
+    for t in wallet.GetTokens().values():
+        if token_str in [t.symbol, t.ScriptHash.ToString()]:
+            token = t
+            break
+
+    if not isinstance(token, NEP5Token.NEP5Token):
+        raise ValueError("The given token argument does not represent a known NEP5 token")
+    return token
+
+
+def is_valid_public_key(key):
+    if len(key) != 66:
+        return False
+    try:
+        Crypto.ToScriptHash(key, unhex=True)
+    except Exception:
+        # the UINT160 inside ToScriptHash can throw Exception
+        return False
+    else:
+        return True

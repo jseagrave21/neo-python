@@ -267,13 +267,14 @@ class AccountState(StateBase):
         json = super(AccountState, self).ToJson()
         addr = Crypto.ToAddress(self.ScriptHash)
 
-        json['script_hash'] = addr
+        json['address'] = addr
+        json['script_hash'] = str(self.ScriptHash)
         json['frozen'] = self.IsFrozen
         json['votes'] = [v.hex() for v in self.Votes]
 
-        balances = {}
+        balances = []
         for key, value in self.Balances.items():
-            balances[key.To0xString()] = value.ToString()
+            balances.append({'asset': key.To0xString(), 'value': value.ToString()})
 
         json['balances'] = balances
         return json

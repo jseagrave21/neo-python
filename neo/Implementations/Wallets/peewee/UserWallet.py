@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import binascii
 
-from logzero import logger
 from playhouse.migrate import SqliteMigrator, BooleanField, migrate
 from .PWDatabase import PWDatabase
 from neo.Wallets.Wallet import Wallet
@@ -20,11 +19,12 @@ from neocore.UInt160 import UInt160
 from neocore.Fixed8 import Fixed8
 from neocore.UInt256 import UInt256
 from neo.Wallets.Coin import CoinState
-from neo.EventHub import SmartContractEvent, events
 from neo.Implementations.Wallets.peewee.Models import Account, Address, Coin, \
     Contract, Key, Transaction, \
     TransactionInfo, NEP5Token, NamedAddress, VINHold
-import json
+from neo.logging import log_manager
+
+logger = log_manager.getLogger()
 
 
 class UserWallet(Wallet):
@@ -34,55 +34,16 @@ class UserWallet(Wallet):
 
     _aliases = None
 
-    _holds = None
-
     _db = None
 
     def __init__(self, path, passwordKey, create):
 
         super(UserWallet, self).__init__(path, passwordKey=passwordKey, create=create)
         logger.debug("initialized user wallet %s " % self)
+        self.__dbaccount = None
+        self._aliases = None
+        self._db = None
         self.LoadNamedAddresses()
-        self.initialize_holds()
-
-    def initialize_holds(self):
-        self.LoadHolds()
-
-        # Handle EventHub events for SmartContract decorators
-        @events.on(SmartContractEvent.RUNTIME_NOTIFY)
-        def call_on_event(sc_event):
-            # Make sure this event is for this specific smart contract
-            self.on_notify_sc_event(sc_event)
-
-    def on_notify_sc_event(self, sc_event):
-        if not sc_event.test_mode and isinstance(sc_event.notify_type, bytes):
-            notify_type = sc_event.notify_type
-            if notify_type == b'hold_created':
-                self.process_hold_created_event(sc_event.event_payload[1:])
-            elif notify_type in [b'hold_cancelled', b'hold_cleaned_up']:
-                self.process_destroy_hold(notify_type, sc_event.event_payload[1])
-
-    def process_hold_created_event(self, payload):
-        if len(payload) == 4:
-            vin = payload[0]
-            from_addr = UInt160(data=payload[1])
-            to_addr = UInt160(data=payload[2])
-            amount = int.from_bytes(payload[3], 'little')
-            v_index = int.from_bytes(vin[32:], 'little')
-            v_txid = UInt256(data=vin[0:32])
-            if to_addr.ToBytes() in self._contracts.keys() and from_addr in self._watch_only:
-                hold, created = VINHold.get_or_create(
-                    Index=v_index, Hash=v_txid.ToBytes(), FromAddress=from_addr.ToBytes(), ToAddress=to_addr.ToBytes(), Amount=amount, IsComplete=False
-                )
-                if created:
-                    self.LoadHolds()
-
-    def process_destroy_hold(self, destroy_type, vin_to_cancel):
-        completed = self.LoadCompletedHolds()
-        for hold in completed:
-            if hold.Vin == vin_to_cancel:
-                logger.info('[%s] Deleting hold %s' % (destroy_type, json.dumps(hold.ToJson(), indent=4)))
-                hold.delete_instance()
 
     def BuildDatabase(self):
         self._db = PWDatabase(self._path).DB
@@ -92,19 +53,12 @@ class UserWallet(Wallet):
         except Exception as e:
             logger.error("Could not build database %s %s " % (e, self._path))
 
-    def Migrate(self):
-        migrator = SqliteMigrator(self._db)
-        migrate(
-            migrator.drop_not_null('Contract', 'Account_id'),
-            migrator.add_column('Address', 'IsWatchOnly', BooleanField(default=False)),
-        )
-
     def DB(self):
         return self._db
 
-    def Rebuild(self):
+    def Rebuild(self, start_block=0):
         try:
-            super(UserWallet, self).Rebuild()
+            super(UserWallet, self).Rebuild(start_block)
 
             logger.debug("wallet rebuild: deleting %s coins and %s transactions" %
                          (Coin.select().count(), Transaction.select().count()))
@@ -126,19 +80,20 @@ class UserWallet(Wallet):
         return UserWallet(path=path, passwordKey=password, create=False)
 
     @staticmethod
-    def Create(path, password):
+    def Create(path, password, generate_default_key=True):
         """
         Create a new user wallet.
 
         Args:
-            path (str): A path indicating where to create or open the wallet i.e. "/Wallets/mywallet".
+            path (str): A path indicating where to create or open the wallet e.g. "/Wallets/mywallet".
             password (str): a 10 characters minimum password to secure the wallet with.
 
         Returns:
              UserWallet: a UserWallet instance.
         """
         wallet = UserWallet(path=path, passwordKey=password, create=True)
-        wallet.CreateKey()
+        if generate_default_key:
+            wallet.CreateKey()
         return wallet
 
     def CreateKey(self, prikey=None):
@@ -190,7 +145,7 @@ class UserWallet(Wallet):
             db_contract = Contract.get(ScriptHash=contract.ScriptHash.ToBytes())
             db_contract.delete_instance()
         except Exception as e:
-            logger.info("contract does not exist yet")
+            logger.debug("contract does not exist yet")
 
         sh = bytes(contract.ScriptHash.ToArray())
         address, created = Address.get_or_create(ScriptHash=sh)
@@ -223,7 +178,7 @@ class UserWallet(Wallet):
             address.save()
             return address
         else:
-            raise Exception("Address already exists in wallet")
+            raise ValueError("Address already exists in wallet")
 
     def AddNEP5Token(self, token):
 
@@ -338,13 +293,6 @@ class UserWallet(Wallet):
     def LoadNamedAddresses(self):
         self._aliases = NamedAddress.select()
 
-    def LoadHolds(self):
-        self._holds = VINHold.filter(IsComplete=False)
-        return self._holds
-
-    def LoadCompletedHolds(self):
-        return VINHold.filter(IsComplete=True)
-
     @property
     def NamedAddr(self):
         return self._aliases
@@ -356,7 +304,7 @@ class UserWallet(Wallet):
             k.Value = value
             k.save()
         except Exception as e:
-            print("Could not save stored data %s " % e)
+            pass
 
         if k is None:
             k = Key.create(Name=key, Value=value)
@@ -415,10 +363,6 @@ class UserWallet(Wallet):
                 logger.error("[Path: %s ] Could not create coin: %s " % (self._path, e))
 
         for coin in changed:
-            for hold in self._holds:
-                if hold.Reference == coin.Reference and coin.State & CoinState.Spent > 0:
-                    hold.IsComplete = True
-                    hold.save()
             try:
                 c = Coin.get(TxId=bytes(coin.Reference.PrevHash.Data), Index=coin.Reference.PrevIndex)
                 c.State = coin.State
@@ -427,10 +371,6 @@ class UserWallet(Wallet):
                 logger.error("[Path: %s ] could not change coin %s %s (coin to change not found)" % (self._path, coin, e))
 
         for coin in deleted:
-            for hold in self._holds:
-                if hold.Reference == coin.Reference:
-                    hold.IsComplete = True
-                    hold.save()
             try:
                 c = Coin.get(TxId=bytes(coin.Reference.PrevHash.Data), Index=coin.Reference.PrevIndex)
                 c.delete_instance()
@@ -482,7 +422,10 @@ class UserWallet(Wallet):
 
     def DeleteNEP5Token(self, script_hash):
 
-        token = super(UserWallet, self).DeleteNEP5Token(script_hash)
+        try:
+            token = super(UserWallet, self).DeleteNEP5Token(script_hash)
+        except KeyError:
+            return False
 
         try:
             db_token = NEP5Token.get(ContractHash=token.ScriptHash.ToBytes())
@@ -505,7 +448,6 @@ class UserWallet(Wallet):
         todelete = bytes(script_hash.ToArray())
 
         for c in Contract.select():
-
             address = c.Address
             if address.ScriptHash == todelete:
                 c.delete_instance()
@@ -517,7 +459,7 @@ class UserWallet(Wallet):
         except Exception as e:
             pass
 
-        return True, coins_toremove
+        return success, coins_toremove
 
     def ToJson(self, verbose=False):
         assets = self.GetCoinAssets()

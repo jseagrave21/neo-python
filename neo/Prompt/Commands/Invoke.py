@@ -4,8 +4,7 @@ from neo.Blockchain import GetBlockchain
 from neo.VM.ScriptBuilder import ScriptBuilder
 from neo.VM.InteropService import InteropInterface
 from neo.Network.NodeLeader import NodeLeader
-from neo.Prompt.Utils import parse_param, get_asset_attachments, lookup_addr_str, get_owners_from_params, gather_param, get_parse_addresses
-
+from neo.Prompt import Utils as PromptUtils
 from neo.Implementations.Blockchains.LevelDB.DBCollection import DBCollection
 from neo.Implementations.Blockchains.LevelDB.DBPrefix import DBPrefix
 from neo.Implementations.Blockchains.LevelDB.CachedScriptTable import CachedScriptTable
@@ -19,7 +18,7 @@ from neo.Core.State.StorageItem import StorageItem
 
 from neo.Core.TX.InvocationTransaction import InvocationTransaction
 from neo.Core.TX.TransactionAttribute import TransactionAttribute, TransactionAttributeUsage
-from neo.Core.TX.Transaction import TransactionOutput
+from neo.Core.TX.Transaction import TransactionOutput, TXFeeError
 
 from neo.SmartContract.ApplicationEngine import ApplicationEngine
 from neo.SmartContract import TriggerType
@@ -32,9 +31,12 @@ from neocore.Fixed8 import Fixed8
 from neo.Settings import settings
 from neo.Core.Blockchain import Blockchain
 from neo.EventHub import events
-from logzero import logger
 from prompt_toolkit import prompt
 from copy import deepcopy
+from neo.logging import log_manager
+from neo.Prompt.PromptPrinter import prompt_print as print
+
+logger = log_manager.getLogger()
 
 from neocore.Cryptography.ECCurve import ECDSA
 from neocore.UInt160 import UInt160
@@ -45,11 +47,23 @@ DEFAULT_MIN_FEE = Fixed8.FromDecimal(.0001)
 
 def InvokeContract(wallet, tx, fee=Fixed8.Zero(), from_addr=None, owners=None):
     if from_addr is not None:
-        from_addr = lookup_addr_str(wallet, from_addr)
+        from_addr = PromptUtils.lookup_addr_str(wallet, from_addr)
 
-    wallet_tx = wallet.MakeTransaction(tx=tx, fee=fee, use_standard=True, from_addr=from_addr)
+    try:
+        wallet_tx = wallet.MakeTransaction(tx=tx, fee=fee, use_standard=True, from_addr=from_addr)
+    except ValueError:
+        print("Insufficient funds")
+        return False
+    except TXFeeError as e:
+        print(e)
+        return False
 
     if wallet_tx:
+
+        if owners:
+            for owner in list(owners):
+                wallet_tx.Attributes.append(TransactionAttribute(usage=TransactionAttributeUsage.Script, data=owner))
+            wallet_tx.Attributes = make_unique_script_attr(tx.Attributes)
 
         context = ContractParametersContext(wallet_tx)
         wallet.Sign(context)
@@ -63,7 +77,7 @@ def InvokeContract(wallet, tx, fee=Fixed8.Zero(), from_addr=None, owners=None):
 
             relayed = False
 
-#            print("SENDING TX: %s " % json.dumps(wallet_tx.ToJson(), indent=4))
+            #            print("SENDING TX: %s " % json.dumps(wallet_tx.ToJson(), indent=4))
 
             relayed = NodeLeader.Instance().Relay(wallet_tx)
 
@@ -86,8 +100,14 @@ def InvokeContract(wallet, tx, fee=Fixed8.Zero(), from_addr=None, owners=None):
 
 
 def InvokeWithTokenVerificationScript(wallet, tx, token, fee=Fixed8.Zero(), invoke_attrs=None):
-
-    wallet_tx = wallet.MakeTransaction(tx=tx, fee=fee, use_standard=True)
+    try:
+        wallet_tx = wallet.MakeTransaction(tx=tx, fee=fee, use_standard=True)
+    except ValueError:
+        print("Insufficient funds")
+        return False
+    except TXFeeError as e:
+        print(e)
+        return False
 
     if wallet_tx:
 
@@ -144,7 +164,6 @@ def InvokeWithTokenVerificationScript(wallet, tx, token, fee=Fixed8.Zero(), invo
 def TestInvokeContract(wallet, args, withdrawal_tx=None,
                        parse_params=True, from_addr=None,
                        min_fee=DEFAULT_MIN_FEE, invoke_attrs=None, owners=None):
-
     BC = GetBlockchain()
 
     contract = BC.GetContract(args[0])
@@ -153,16 +172,16 @@ def TestInvokeContract(wallet, args, withdrawal_tx=None,
         #
         params = args[1:] if len(args) > 1 else []
 
-        params, neo_to_attach, gas_to_attach = get_asset_attachments(params)
-        params, parse_addresses = get_parse_addresses(params)
+        params, neo_to_attach, gas_to_attach = PromptUtils.get_asset_attachments(params)
+        params, parse_addresses = PromptUtils.get_parse_addresses(params)
         params.reverse()
 
         if '--i' in params:
             params = []
             for index, iarg in enumerate(contract.Code.ParameterList):
-                param, abort = gather_param(index, iarg)
+                param, abort = PromptUtils.gather_param(index, iarg)
                 if abort:
-                    return None, None, None, None
+                    return None, None, None, None, False
                 params.append(param)
             params.reverse()
 
@@ -171,18 +190,18 @@ def TestInvokeContract(wallet, args, withdrawal_tx=None,
         for p in params:
 
             if parse_params:
-                item = parse_param(p, wallet, parse_addr=parse_addresses)
+                item = PromptUtils.parse_param(p, wallet, parse_addr=parse_addresses)
             else:
                 item = p
             if type(item) is list:
                 item.reverse()
                 listlength = len(item)
                 for listitem in item:
-                    subitem = parse_param(listitem, wallet, parse_addr=parse_addresses)
+                    subitem = PromptUtils.parse_param(listitem, wallet, parse_addr=parse_addresses)
                     if type(subitem) is list:
                         subitem.reverse()
                         for listitem2 in subitem:
-                            subsub = parse_param(listitem2, wallet, parse_addr=parse_addresses)
+                            subsub = PromptUtils.parse_param(listitem2, wallet, parse_addr=parse_addresses)
                             sb.push(subsub)
                         sb.push(len(subitem))
                         sb.Emit(PACK)
@@ -201,7 +220,6 @@ def TestInvokeContract(wallet, args, withdrawal_tx=None,
         outputs = []
 
         if neo_to_attach:
-
             output = TransactionOutput(AssetId=Blockchain.SystemShare().Hash,
                                        Value=neo_to_attach,
                                        script_hash=contract.Code.ScriptHash(),
@@ -209,7 +227,6 @@ def TestInvokeContract(wallet, args, withdrawal_tx=None,
             outputs.append(output)
 
         if gas_to_attach:
-
             output = TransactionOutput(AssetId=Blockchain.SystemCoin().Hash,
                                        Value=gas_to_attach,
                                        script_hash=contract.Code.ScriptHash())
@@ -222,7 +239,7 @@ def TestInvokeContract(wallet, args, withdrawal_tx=None,
 
         print("Contract %s not found" % args[0])
 
-    return None, None, None, None
+    return None, None, None, None, False
 
 
 def make_unique_script_attr(attributes):
@@ -259,17 +276,15 @@ def test_invoke(script, wallet, outputs, withdrawal_tx=None,
     # print("invoke script %s " % script)
 
     if from_addr is not None:
-        from_addr = lookup_addr_str(wallet, from_addr)
+        from_addr = PromptUtils.lookup_addr_str(wallet, from_addr)
 
     bc = GetBlockchain()
 
-    sn = bc._db.snapshot()
-
-    accounts = DBCollection(bc._db, sn, DBPrefix.ST_Account, AccountState)
-    assets = DBCollection(bc._db, sn, DBPrefix.ST_Asset, AssetState)
-    validators = DBCollection(bc._db, sn, DBPrefix.ST_Validator, ValidatorState)
-    contracts = DBCollection(bc._db, sn, DBPrefix.ST_Contract, ContractState)
-    storages = DBCollection(bc._db, sn, DBPrefix.ST_Storage, StorageItem)
+    accounts = DBCollection(bc._db, DBPrefix.ST_Account, AccountState)
+    assets = DBCollection(bc._db, DBPrefix.ST_Asset, AssetState)
+    validators = DBCollection(bc._db, DBPrefix.ST_Validator, ValidatorState)
+    contracts = DBCollection(bc._db, DBPrefix.ST_Contract, ContractState)
+    storages = DBCollection(bc._db, DBPrefix.ST_Storage, StorageItem)
 
     # if we are using a withdrawal tx, don't recreate the invocation tx
     # also, we don't want to reset the inputs / outputs
@@ -299,7 +314,10 @@ def test_invoke(script, wallet, outputs, withdrawal_tx=None,
     if withdrawal_tx is not None:
         wallet_tx = tx
     else:
-        wallet_tx = wallet.MakeTransaction(tx=tx, from_addr=from_addr)
+        try:
+            wallet_tx = wallet.MakeTransaction(tx=tx, from_addr=from_addr, skip_fee_calc=True)
+        except ValueError:
+            pass
 
     context = ContractParametersContext(wallet_tx)
     wallet.Sign(context)
@@ -316,7 +334,7 @@ def test_invoke(script, wallet, outputs, withdrawal_tx=None,
     if context.Completed:
         wallet_tx.scripts = context.GetScripts()
     else:
-        logger.warn("Not gathering signatures for test build.  For a non-test invoke that would occur here.")
+        logger.warning("Not gathering signatures for test build.  For a non-test invoke that would occur here.")
     #        if not gather_signatures(context, wallet_tx, owners):
     #            return None, [], 0, None
 
@@ -329,7 +347,7 @@ def test_invoke(script, wallet, outputs, withdrawal_tx=None,
         testMode=True
     )
 
-    engine.LoadScript(wallet_tx.Script, False)
+    engine.LoadScript(wallet_tx.Script)
 
     try:
         success = engine.Execute()
@@ -367,18 +385,26 @@ def test_invoke(script, wallet, outputs, withdrawal_tx=None,
             wallet_tx.outputs = outputs
             wallet_tx.Attributes = [] if invoke_attrs is None else deepcopy(invoke_attrs)
 
-            return wallet_tx, net_fee, engine.EvaluationStack.Items, engine.ops_processed
+            # calculate the required network fee for the tx and compare to fee
+            if wallet_tx.Size() > settings.MAX_FREE_TX_SIZE:
+                req_fee = Fixed8.FromDecimal(settings.FEE_PER_EXTRA_BYTE * (wallet_tx.Size() - settings.MAX_FREE_TX_SIZE))
+                if req_fee < settings.LOW_PRIORITY_THRESHOLD:
+                    req_fee = settings.LOW_PRIORITY_THRESHOLD
+                if net_fee < req_fee:
+                    net_fee = req_fee
+
+            return wallet_tx, net_fee, engine.ResultStack.Items, engine.ops_processed, success
 
         # this allows you to to test invocations that fail
         else:
             wallet_tx.outputs = outputs
             wallet_tx.Attributes = [] if invoke_attrs is None else deepcopy(invoke_attrs)
-            return wallet_tx, min_fee, [], engine.ops_processed
+            return wallet_tx, min_fee, [], engine.ops_processed, success
 
     except Exception as e:
         service.ExecutionCompleted(engine, False, e)
 
-    return None, None, None, None
+    return None, None, None, None, False
 
 
 def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
@@ -386,18 +412,15 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
                            debug_map=None, invoke_attrs=None, owners=None):
     bc = GetBlockchain()
 
-    sn = bc._db.snapshot()
-
-    accounts = DBCollection(bc._db, sn, DBPrefix.ST_Account, AccountState)
-    assets = DBCollection(bc._db, sn, DBPrefix.ST_Asset, AssetState)
-    validators = DBCollection(bc._db, sn, DBPrefix.ST_Validator, ValidatorState)
-    contracts = DBCollection(bc._db, sn, DBPrefix.ST_Contract, ContractState)
-    storages = DBCollection(bc._db, sn, DBPrefix.ST_Storage, StorageItem)
+    accounts = DBCollection(bc._db, DBPrefix.ST_Account, AccountState)
+    assets = DBCollection(bc._db, DBPrefix.ST_Asset, AssetState)
+    validators = DBCollection(bc._db, DBPrefix.ST_Validator, ValidatorState)
+    contracts = DBCollection(bc._db, DBPrefix.ST_Contract, ContractState)
+    storages = DBCollection(bc._db, DBPrefix.ST_Storage, StorageItem)
 
     if settings.USE_DEBUG_STORAGE:
         debug_storage = DebugStorage.instance()
-        debug_sn = debug_storage.db.snapshot()
-        storages = DBCollection(debug_storage.db, debug_sn, DBPrefix.ST_Storage, StorageItem)
+        storages = DBCollection(debug_storage.db, DBPrefix.ST_Storage, StorageItem)
         storages.DebugStorage = True
 
     dtx = InvocationTransaction()
@@ -408,9 +431,13 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
     dtx.Script = binascii.unhexlify(deploy_script)
 
     if from_addr is not None:
-        from_addr = lookup_addr_str(wallet, from_addr)
+        from_addr = PromptUtils.lookup_addr_str(wallet, from_addr)
 
-    dtx = wallet.MakeTransaction(tx=dtx, from_addr=from_addr)
+    try:
+        dtx = wallet.MakeTransaction(tx=dtx, from_addr=from_addr)
+    except (ValueError, TXFeeError):
+        pass
+
     context = ContractParametersContext(dtx)
     wallet.Sign(context)
     dtx.scripts = context.GetScripts()
@@ -433,7 +460,7 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
         testMode=True
     )
 
-    engine.LoadScript(dtx.Script, False)
+    engine.LoadScript(dtx.Script)
 
     # first we will execute the test deploy
     # then right after, we execute the test invoke
@@ -442,7 +469,7 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
 
     if d_success:
 
-        items = engine.EvaluationStack.Items
+        items = engine.ResultStack.Items
 
         contract_state = None
         for i in items:
@@ -457,15 +484,15 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
 
         shash = contract_state.Code.ScriptHash()
 
-        invoke_args, neo_to_attach, gas_to_attach = get_asset_attachments(invoke_args)
-        invoke_args, no_parse_addresses = get_parse_addresses(invoke_args)
+        invoke_args, neo_to_attach, gas_to_attach = PromptUtils.get_asset_attachments(invoke_args)
+        invoke_args, no_parse_addresses = PromptUtils.get_parse_addresses(invoke_args)
 
         invoke_args.reverse()
 
         if '--i' in invoke_args:
             invoke_args = []
             for index, iarg in enumerate(contract_state.Code.ParameterList):
-                param, abort = gather_param(index, iarg)
+                param, abort = PromptUtils.gather_param(index, iarg)
                 if abort:
                     return None, [], 0, None
                 else:
@@ -475,16 +502,16 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
         sb = ScriptBuilder()
 
         for p in invoke_args:
-            item = parse_param(p, wallet, parse_addr=no_parse_addresses)
+            item = PromptUtils.parse_param(p, wallet, parse_addr=no_parse_addresses)
             if type(item) is list:
                 item.reverse()
                 listlength = len(item)
                 for listitem in item:
-                    subitem = parse_param(listitem, wallet, parse_addr=no_parse_addresses)
+                    subitem = PromptUtils.parse_param(listitem, wallet, parse_addr=no_parse_addresses)
                     if type(subitem) is list:
                         subitem.reverse()
                         for listitem2 in subitem:
-                            subsub = parse_param(listitem2, wallet, parse_addr=no_parse_addresses)
+                            subsub = PromptUtils.parse_param(listitem2, wallet, parse_addr=no_parse_addresses)
                             sb.push(subsub)
                         sb.push(len(subitem))
                         sb.Emit(PACK)
@@ -529,7 +556,10 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
                                                        data=contract.ScriptHash))
             itx.Attributes = make_unique_script_attr(itx.Attributes)
 
-        itx = wallet.MakeTransaction(tx=itx, from_addr=from_addr)
+        try:
+            itx = wallet.MakeTransaction(tx=itx, from_addr=from_addr)
+        except (ValueError, TXFeeError):
+            pass
 
         context = ContractParametersContext(itx)
         wallet.Sign(context)
@@ -560,7 +590,7 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
         )
 
         engine.invocation_args = invoke_args
-        engine.LoadScript(itx.Script, False)
+        engine.LoadScript(itx.Script)
         engine.LoadDebugInfoForScriptHash(debug_map, shash.Data)
 
         i_success = engine.Execute()
@@ -591,7 +621,7 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
             # set the amount of gas the tx will need
             itx.Gas = consumed
             itx.Attributes = []
-            result = engine.EvaluationStack.Items
+            result = engine.ResultStack.Items
             return itx, result, total_ops, engine
         else:
             print("error executing invoke contract...")
@@ -606,7 +636,6 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet,
 
 def gather_signatures(context, itx, owners):
     do_exit = False
-    print("owners %s " % owners)
     print("\n\n*******************\n")
     print("Gather Signatures for Transaction:\n%s " % json.dumps(itx.ToJson(), indent=4))
     print("Please use a client to sign the following: %s " % itx.GetHashData())

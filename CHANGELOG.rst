@@ -3,6 +3,127 @@ Changelog
 
 All notable changes to this project are documented in this file.
 
+
+[0.8.4] 2019-02-14
+------------------
+- Fix incorrect error handling when importing a 1 out of 2 multi-signature address `#860 <https://github.com/CityOfZion/neo-python/pull/860>`_
+- Gracefully handle invalid ``GET`` request `#863 <https://github.com/CityOfZion/neo-python/pull/863>`_
+- Implement tx size network fee calc `#869 <https://github.com/CityOfZion/neo-python/pull/869>`_
+- Fix ``config maxpeers`` to disconnect peers if limited is lower than before `#878 <https://github.com/CityOfZion/neo-python/pull/878>`_
+- Implement the ability to attach a priority fee to applicable transactions `#880 <https://github.com/CityOfZion/neo-python/pull/880>`_
+- Fix an invalid list access error during client connection error edge case `#882 <https://github.com/CityOfZion/neo-python/pull/882>`_
+- Fix `NetworkAddressWithTime` address serialization `#897 <https://github.com/CityOfZion/neo-python/pull/897>`_
+- Add additional debug logging to help investigate transaction verification failures `#898 <https://github.com/CityOfZion/neo-python/pull/898>`_
+
+
+[0.8.3] 2019-01-16
+------------------
+- Update ``getassetstate`` RPC method to support `neo` and `gas` aliases; Cleanup ``show_contract_state`` `#667 <https://github.com/CityOfZion/neo-python/pull/667>`_
+- Add fix to ensure tx is saved to wallet when sent using RPC `#680 <https://github.com/CityOfZion/neo-python/pull/680>`_
+- Disallow ``Void`` type input parameters for smart contracts and increase test coverage `#690 <https://github.com/CityOfZion/neo-python/pull/690>`_
+- Fix confirmed tx not being purged from mempool `#703 <https://github.com/CityOfZion/neo-python/issues/703>`_
+- Fix bootstrap thread joining failure on Ubuntu systems `#705 <https://github.com/CityOfZion/neo-python/pull/705>`_
+- Make bootstrap lookup dynamic such that users don't have to update their configs from here on forward `#705 <https://github.com/CityOfZion/neo-python/pull/705>`_
+- Move some warnings and 'expected' errors to `DEBUG` level to avoid logging to console by default `#708 <https://github.com/CityOfZion/neo-python/pull/708>`_
+- Empty VerificationScripts for deployed contracts now work as intended `#709 <https://github.com/CityOfZion/neo-python/pull/709>`_
+- Fix various issues related to signing multi-signature transactions `#710 <https://github.com/CityOfZion/neo-python/pull/710>`_
+- Add GET and OPTIONS request functionality for JSON-RPC servers `#712 <https://github.com/CityOfZion/neo-python/pull/712>`_
+- Fix RPC's ``getaccountstate`` response schema to match ``neo-cli`` `#714 <https://github.com/CityOfZion/neo-python/issues/714>`_
+- Add bad peers to the ``getpeers`` RPC method `#715 <https://github.com/CityOfZion/neo-python/pull/715>`_
+- Allow a raw tx to be build without an active blockchain db in the environment `#718 <https://github.com/CityOfZion/neo-python/pull/718>`_
+- Introduce Django inspired component loading for REST and RPC server `#719 <https://github.com/CityOfZion/neo-python/pull/719>`_
+- Fix unnecessary default bootstrap warning for mainnet showing. `#722 <https://github.com/CityOfZion/neo-python/pull/722>`_
+- Various updates to the network code to improve stability as well as inspection `#723 <https://github.com/CityOfZion/neo-python/pull/723/>`_
+   - Added peer health checking to validate that we get the data we requested within a given time threshold
+   - Added peer connection monitoring to keep queueing or reset if we have no more valid addresses to connect to.
+   - Added extensive logging to improve inspection
+- Fix ``gzip`` failure in current implementation of ExtendedJsonRpcApi `#724 <https://github.com/CityOfZion/neo-python/pull/724>`_
+- Gracefully handle balance query failures of NEP-5 tokens. `#744 <https://github.com/CityOfZion/neo-python/pull/744>`_
+- Fix ``getcontractstate`` JSON output to match neo-cli 2.9.2 `#746 <https://github.com/CityOfZion/neo-python/issues/746>`_
+- Fix ``getrawtransaction`` JSON output to match neo-cli 2.9.2 `#751 <https://github.com/CityOfZion/neo-python/pull/751>`_
+- Add ``--to-addr`` option when claiming gas `#755 <https://github.com/CityOfZion/neo-python/issues/755>`_
+- Remove ``ExtendedJsonRpc`` server from base repo (still available as extension) `#756 <https://github.com/CityOfZion/neo-python/pull/756>`_
+- Fix calculation of asset change value when using multiple alternating asset inputs `#803 <https://github.com/CityOfZion/neo-python/pull/803>`_
+- Refactor CLI to be more user friendly and support better future extensibility `#805 <https://github.com/CityOfZion/neo-python/pull/805>`_
+- Update TestNet seeds `#807 <https://github.com/CityOfZion/neo-python/pull/807>`_
+- Add Reset logic to NodeLeader such that Blockchain fixture testcases reset properly `#809 <https://github.com/CityOfZion/neo-python/pull/809>`_
+- Resolve peewee DeprecationWarning `#810 <https://github.com/CityOfZion/neo-python/pull/810>`_
+- Add VM SafeReadBytes `#812 <https://github.com/CityOfZion/neo-python/pull/812>`_
+- Add gettransactionheight RPC method `#813 <https://github.com/CityOfZion/neo-python/pull/813>`_
+- Update ``ApplicationEngine`` methods ``CheckStackSize`` and ``GetPrice`` `#814 <https://github.com/CityOfZion/neo-python/pull/814/>`_
+- Cleanup ``show nodes`` output `#815 <https://github.com/CityOfZion/neo-python/pull/815>`_
+
+
+[0.8.2] 2018-10-31
+-------------------
+- Improve Tokens.py and ``token_send``, increase test coverage
+- Fix max recursion depth exceeding when network data inflow exceeds processing speed
+- Add log output control via the new ``config output_level`` command. The old ``config debug`` command is removed.
+- Update Readme and Prompt.py ``help``
+- Update documentation to include new ``IsPayable`` contract flag in the examples
+- Fix discrepancy between ``getpeers`` RPC call and the ``maxpeers`` setting
+- Update ``CreateAddress`` functionality and tests
+- Add VM sanity checks for operations on ``BigInteger``'s
+- Add raw transaction building examples in ``\examples\`` folder
+- Add ExtendedJsonRpcApi, Add ``getnodestate`` RPC extended method, Add ``gettxhistory`` RPC extended method
+- Fix return types of ``claimGas`` function.
+- Update compiler version ``v0.5.6``
+- Add the option -u (unittest-net) to prompt.py
+- Add fixtures guidelines and add the smart contract source codes (UnitTest-SM.zip) to the fixtures package
+- Adds ``sendmany`` feature to prompt.py, integrates with ``send`` feature, and adds provisions for sending with a negative fee and bad from_address
+- Fix ``ExtendedJsonRpcApi``
+- Fix cleaning up tasks for disconnected peers `#687 <https://github.com/CityOfZion/neo-python/issues/687>`_
+- Fix duplicate task starting for requesting blocks
+- Add ``getblockheader`` RPC method
+- Remove ``Neo.Witness.GetInvocationScript``
+- Allow wallets to sync past corrupt blocks
+
+
+[0.8.1] 2018-10-06
+------------------
+- Add ``sendmany`` and ``sendfrom`` RPC methods & tests and integrate with ``sendtoaddress``
+- Updated all the dependencies
+- Add ``Neo.Transaction.GetWitnesses``, ``Neo.Witness.GetInvocationScript``, ``Neo.Witness.GetVerificationScript``
+- Change notification transfer event format to use string quoted integer
+- Fix Notification token list to include correct hash for contract and token
+- Removes all ``hold`` and ``withdraw`` related functionality from wallet and prompt
+- Various updates to inaccuracies in ``ToJson`` output of ``AccountState``
+- Add documentation support for Python 3.7
+- Change execution fail event payload to give more meaningful error messages
+
+
+[0.8.0] 2018-09-28
+------------------
+- Implemented ``sendtoaddress`` RPC method `#556 <https://github.com/CityOfZion/neo-python/pull/556>`_
+- Gracefully handle network packet deserialization failures
+- Implementation Stack Isolation (NEP8)
+- Fix issue resetting storage between Smart Contract invocations
+- Default ``ApplicationConfiguration.AcceptIncomingPeers`` to ``False``, if config value is not present
+- Update seed list to include NGD nodes
+- Fix unhandled deferred errors
+- Fix ``Blockchain.DeregisterBlockchain`` not clearing all static variables
+- Disable ``prompt.py`` test cases due to high time consumption and unreliable results.
+- Migrate the existing test cases, which depend on BlockchainFixtureTestCase and WalletFixtureTestCase, to a privnet. Reduction of the fixtures' size to about 7MB. `#478 <https://github.com/CityOfZion/neo-python/issues/478>`_
+- Ensure non-zero send value in prompt.py
+- Update block importing and exporting functionality.
+- Add send-zero provision and improved test coverage to ``sendtoaddress``
+- Update Mainnet bootstrap files
+- Update to compiler version ``v0.5.3``
+
+[0.7.8] 2018-09-06
+------------------
+- Prefix ``vin`` JSON output format to match C#
+- Update ``neo-boa`` to v0.5.0 for Python 3.7 compatibility
+- Update ``pexpect`` to 4.6.0 to be compatible with Python 3.7
+- Accept incoming node connections, configurable via protocol config file setting (default: OFF)
+- Fixes vulnerability to RPC invoke functionality that can send node into unclosed loop during 'test' invokes
+- Fix issue with opening recently created wallets
+- Fix ``import_blocks.py`` block hash caching issue
+- Update prompt.py: add ``account`` to help, update help, update standard completions, add ``config maxpeers`` functionality, update ``configure`` function arguments to behave as intended
+- Add support for multiple requests in one transaction for JSON-RPC
+- Update docs ``toctree`` so all pages are indexed & added instructions for contributing to docs
+
+
 [0.7.7] 2018-08-23
 ------------------
 - Fix issue with ``UserWallet.SaveStoredData``
@@ -11,10 +132,10 @@ All notable changes to this project are documented in this file.
 - Add appropriate GAS cost for ``VERIFY``
 - Update test_prompt.py to acheive passing neo-python-core build
 - Add Seedlist.rst and update Basicusage.rst for API Servers
-- Adds test for np-prompt using pexpect
+- Add test for np-prompt using pexpect
 - Add getwalletheight RPC call
 - Add support for Peewee 3.6.4
-- Adds support for ``IsPayable`` flag in prompt.
+- Add support for ``IsPayable`` flag in prompt.
 - Fix Block header problems with ``block_import.py`` script
 - Sync GAS price calculations with current Neo core
 - Update bootstrap files for mainnet and testnet
@@ -205,15 +326,15 @@ All notable changes to this project are documented in this file.
 - Fixed README reference in ``MANIFEST.in``
 - Added additional error messages to ``ExecutionEngine.py`` to help with debugging smart contracts.
 - Changes for Pypi compatibility:
-  - move protocol.*.json to ``neo/data/``
-  - move ``prompt.py`` and other scripts to ``neo/bin``
-  - default chain data path is now in ``~/.neopython/Chains``.  ``prompt.log`` and ``prompt.history`` files are also stored there
-  - the following console scripts are now on the ``venv`` path after running ``pip install neo-python`` or ``pip install -e .`` for github based installs:
-    - ``np-prompt``
-    - ``np-api-server``
-    - ``np-bootstrap``
-    - ``np-reencrypt-wallet``
-  - updated docs for Pypi changes
+   - move protocol.*.json to ``neo/data/``
+   - move ``prompt.py`` and other scripts to ``neo/bin``
+   - default chain data path is now in ``~/.neopython/Chains``.  ``prompt.log`` and ``prompt.history`` files are also stored there
+   - the following console scripts are now on the ``venv`` path after running ``pip install neo-python`` or ``pip install -e .`` for github based installs:
+      - ``np-prompt``
+      - ``np-api-server``
+      - ``np-bootstrap``
+      - ``np-reencrypt-wallet``
+   - updated docs for Pypi changes
 
 
 [0.5.7] 2018-03-14
@@ -329,14 +450,6 @@ All notable changes to this project are documented in this file.
 - ability to claim GAS from SC address
 - lots of documentation
 - various small bugfixes
-
-
-[0.4.3] 2017-12-21
-------------------
-
-- updated ``neo-boa`` to ``0.2.1``
-- added support for array ``REVERSE`` and ``APPEND`` VM opcodes
-
 
 [0.4.3] 2017-12-21
 ------------------

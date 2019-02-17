@@ -1,10 +1,15 @@
 from base58 import b58decode
-from logzero import logger
 import binascii
 from neo.Blockchain import GetBlockchain, GetStateReader
+from neo.Implementations.Blockchains.LevelDB.CachedScriptTable import CachedScriptTable
+from neo.Implementations.Blockchains.LevelDB.DBCollection import DBCollection
+from neo.Implementations.Blockchains.LevelDB.DBPrefix import DBPrefix
+from neo.Core.State.ContractState import ContractState
+from neo.Core.State.AssetState import AssetState
 from neocore.Cryptography.Crypto import Crypto
 from neocore.IO.BinaryWriter import BinaryWriter
 from neocore.UInt160 import UInt160
+from neocore.UInt256 import UInt256
 from neo.IO.MemoryStream import StreamManager
 from neo.VM.ScriptBuilder import ScriptBuilder
 from neo.SmartContract.ApplicationEngine import ApplicationEngine
@@ -12,6 +17,9 @@ from neocore.Fixed8 import Fixed8
 from neo.SmartContract import TriggerType
 from neo.Settings import settings
 from neo.EventHub import events
+from neo.logging import log_manager
+
+logger = log_manager.getLogger()
 
 
 class Helper:
@@ -69,7 +77,7 @@ class Helper:
             value (neo.IO.Mixins.SerializableMixin): object extending SerializableMixin.
 
         Returns:
-            bytes:
+            bytes: hex formatted bytes
         """
         ms = StreamManager.GetStream()
         writer = BinaryWriter(ms)
@@ -77,6 +85,27 @@ class Helper:
         value.Serialize(writer)
 
         retVal = ms.ToArray()
+        StreamManager.ReleaseStream(ms)
+
+        return retVal
+
+    @staticmethod
+    def ToStream(value):
+        """
+        Serialize the given `value` to a an array of bytes.
+
+        Args:
+            value (neo.IO.Mixins.SerializableMixin): object extending SerializableMixin.
+
+        Returns:
+            bytes: not hexlified
+        """
+        ms = StreamManager.GetStream()
+        writer = BinaryWriter(ms)
+
+        value.Serialize(writer)
+
+        retVal = ms.getvalue()
         StreamManager.ReleaseStream(ms)
 
         return retVal
@@ -126,7 +155,7 @@ class Helper:
         Get a hash of the provided raw bytes using the ripemd160 algorithm.
 
         Args:
-            raw (bytes): byte array of raw bytes. i.e. b'\xAA\xBB\xCC'
+            raw (bytes): byte array of raw bytes. e.g. b'\xAA\xBB\xCC'
 
         Returns:
             UInt160:
@@ -149,10 +178,11 @@ class Helper:
         try:
             hashes = verifiable.GetScriptHashesForVerifying()
         except Exception as e:
-            logger.error("couldn't get script hashes %s " % e)
+            logger.debug("couldn't get script hashes %s " % e)
             return False
 
         if len(hashes) != len(verifiable.Scripts):
+            logger.debug(f"hash - verification script length mismatch ({len(hashes)}/{len(verifiable.Scripts)})")
             return False
 
         blockchain = GetBlockchain()
@@ -163,18 +193,20 @@ class Helper:
             if len(verification) == 0:
                 sb = ScriptBuilder()
                 sb.EmitAppCall(hashes[i].Data)
-                verification = sb.ToArray()
-
+                verification = sb.ms.getvalue()
             else:
                 verification_hash = Crypto.ToScriptHash(verification, unhex=False)
                 if hashes[i] != verification_hash:
+                    logger.debug(f"hash {hashes[i]} does not match verification hash {verification_hash}")
                     return False
 
             state_reader = GetStateReader()
-            engine = ApplicationEngine(TriggerType.Verification, verifiable, blockchain, state_reader, Fixed8.Zero())
-            engine.LoadScript(verification, False)
-            invoction = verifiable.Scripts[i].InvocationScript
-            engine.LoadScript(invoction, True)
+            script_table = CachedScriptTable(DBCollection(blockchain._db, DBPrefix.ST_Contract, ContractState))
+
+            engine = ApplicationEngine(TriggerType.Verification, verifiable, script_table, state_reader, Fixed8.Zero())
+            engine.LoadScript(verification)
+            invocation = verifiable.Scripts[i].InvocationScript
+            engine.LoadScript(invocation)
 
             try:
                 success = engine.Execute()
@@ -182,8 +214,12 @@ class Helper:
             except Exception as e:
                 state_reader.ExecutionCompleted(engine, False, e)
 
-            if engine.EvaluationStack.Count != 1 or not engine.EvaluationStack.Pop().GetBoolean():
+            if engine.ResultStack.Count != 1 or not engine.ResultStack.Pop().GetBoolean():
                 Helper.EmitServiceEvents(state_reader)
+                if engine.ResultStack.Count > 0:
+                    logger.debug(f"Result stack failure! Count: {engine.ResultStack.Count} bool value: {engine.ResultStack.Pop().GetBoolean()}")
+                else:
+                    logger.debug(f"Result stack failure! Count: {engine.ResultStack.Count}")
                 return False
 
             Helper.EmitServiceEvents(state_reader)
@@ -198,3 +234,22 @@ class Helper:
     def EmitServiceEvents(state_reader):
         for event in state_reader.events_to_dispatch:
             events.emit(event.event_type, event)
+
+    @staticmethod
+    def StaticAssetState(assetId):
+        neo = AssetState()
+        neo.AssetId = UInt256.ParseString("0xc56f33fc6ecfcd0c225c4ab356fee59390af8560be0e930faebe74a6daff7c9b")
+        neo.AssetType = 0x00
+
+        gas = AssetState()
+        gas.AssetId = UInt256.ParseString("0x602c79718b16e442de58778e148d0b1084e3b2dffd5de6b7b16cee7969282de7")
+        gas.AssetType = 0x01
+
+        if assetId == neo.AssetId:
+            return neo
+
+        elif assetId == gas.AssetId:
+            return gas
+
+        else:
+            return None

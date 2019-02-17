@@ -29,16 +29,20 @@ neo-python - Python Node and SDK for the NEO blockchain
 
 
 .. toctree::
-    :maxdepth: 2
+    :maxdepth: 3
 
     overview
     install
     installwindows
+    Seedlist
     basicusage
     prompt
     settings-and-logging
+    neo/Core/TX/Transaction
     neo/SmartContract/smartcontracts
+    neo/SmartContract/application-vs-verification
     data-types
+    plugins
     contribute
     license
     changelog
