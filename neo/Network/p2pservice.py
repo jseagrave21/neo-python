@@ -26,14 +26,14 @@ class NetworkService(Singleton):
 
         logging.getLogger("asyncio").setLevel(logging.DEBUG)
         self.loop.set_debug(False)
-        task = self.loop.create_task(self.nodemgr.start())
+        task = asyncio.create_task(self.nodemgr.start())
         task.add_done_callback(lambda _: asyncio.create_task(self.syncmgr.start()))
 
     async def shutdown(self):
-        with suppress((asyncio.CancelledError)):  # TODO: get rid of generic exception as it masks an issue
-            if self.syncmgr:
+        if self.syncmgr:
+            with suppress(asyncio.CancelledError):
                 await self.syncmgr.shutdown()
 
-        with suppress((asyncio.CancelledError, Exception)):  # TODO: get rid of generic exception as it masks an issue
-            if self.nodemgr:
+        if self.nodemgr:
+            with suppress(asyncio.CancelledError):
                 await self.nodemgr.shutdown()

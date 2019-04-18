@@ -54,8 +54,7 @@ class SyncManager(Singleton):
     async def shutdown(self):
         print("Shutting down sync manager...", end='')
         self.keep_running = False
-        await self.service_task
-        await self.persist_task
+        await asyncio.wait({self.service_task, self.persist_task})
         print("DONE")
 
     async def run_service(self):

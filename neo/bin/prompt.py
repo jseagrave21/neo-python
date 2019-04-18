@@ -306,9 +306,9 @@ def main():
     loop.create_task(p2p.start())
 
     async def shutdown():
-        for task in asyncio.Task.all_tasks():
-            with suppress((asyncio.CancelledError, Exception)):  # TODO: get rid of generic exception
-                task.cancel()
+        for task in asyncio.all_tasks():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
                 await task
 
     try:

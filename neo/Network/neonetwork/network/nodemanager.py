@@ -357,8 +357,8 @@ class NodeManager(Singleton):
         # first shut down all running tasks for this class
         # to prevent requeueing when disconnecting nodes
         for t in self.tasks:
+            t.cancel()
             with suppress(asyncio.CancelledError):
-                t.cancel()
                 await t
 
         # we need to create a new list to loop over, because `disconnect` removes items from self.nodes
