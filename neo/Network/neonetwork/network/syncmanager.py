@@ -43,6 +43,7 @@ class SyncManager(Singleton):
         self.keep_running = True
         self.service_task = None
         self.persist_task = None
+        self.processing_headers = False
 
         msgrouter.on_headers += self.on_headers_received
         msgrouter.on_block += self.on_block_received
@@ -66,7 +67,7 @@ class SyncManager(Singleton):
     async def sync(self) -> None:
         await self.sync_header()
         await self.sync_block()
-        if not self.is_persisting:
+        if not self.is_persisting and not self.processing_headers:
             self.persist_task = asyncio.create_task(self.persist_blocks())
 
     async def sync_header(self) -> None:
@@ -288,6 +289,9 @@ class SyncManager(Singleton):
                 node.nodeweight.append_new_request_time()
 
     async def on_headers_received(self, from_nodeid, headers: List[Header]) -> None:
+        if self.processing_headers:
+            return
+
         if len(headers) == 0:
             return
 
@@ -305,9 +309,11 @@ class SyncManager(Singleton):
         if height <= cur_header_height:
             return
 
+        self.processing_headers = True
         success = await self.ledger.add_headers(headers)
         if not success:
             self.nodemgr.add_node_error_count(from_nodeid)
+        self.processing_headers = False
 
         # reset header such that the a new header sync task can be added
         self.header_request = None
