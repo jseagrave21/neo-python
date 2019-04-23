@@ -37,3 +37,8 @@ class NetworkService(Singleton):
         if self.nodemgr:
             with suppress(asyncio.CancelledError):
                 await self.nodemgr.shutdown()
+
+        for task in asyncio.all_tasks():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
