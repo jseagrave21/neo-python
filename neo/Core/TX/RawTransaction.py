@@ -533,7 +533,7 @@ class RawTransaction(Transaction):
         if not self._network_fee:
             self._network_fee = Fixed8.Zero()
         fee = self._network_fee
-        if self.Size() > settings.MAX_FREE_TX_SIZE:
+        if self.Size() > settings.MAX_FREE_TX_SIZE and not self.Type == b'\x02':  # Claim Transactions are High Priority
             req_fee = Fixed8.FromDecimal(settings.FEE_PER_EXTRA_BYTE * (self.Size() - settings.MAX_FREE_TX_SIZE))
             if req_fee < settings.LOW_PRIORITY_THRESHOLD:
                 req_fee = settings.LOW_PRIORITY_THRESHOLD
