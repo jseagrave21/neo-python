@@ -12,7 +12,7 @@ from neo.Network.neonetwork.network import utils as networkutils
 
 
 class DynamicSeedlist():
-    def init(self):
+    def __init__(self):
         self.ipfilter = IPFilter()
 
     def reset_ipfilter_config(self):
