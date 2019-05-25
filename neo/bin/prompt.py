@@ -264,6 +264,10 @@ def main():
     parser.add_argument("--maxpeers", action="store", default=5,
                         help="Max peers to use for P2P Joining")
 
+    # Safemode
+    parser.add_argument("--safemode", action="store_true", default=False,
+                        help="Connect to dynamic seedlist addrs only")
+
     # Show the neo-python version
     parser.add_argument("--version", action="version",
                         version="neo-python v{version}".format(version=__version__))
@@ -304,6 +308,9 @@ def main():
 
     if args.maxpeers:
         settings.set_max_peers(args.maxpeers)
+
+    if args.safemode:
+        settings.set_safemode(True)
 
     loop = asyncio.get_event_loop()
     # put prompt_toolkit on top of asyncio to avoid blocking

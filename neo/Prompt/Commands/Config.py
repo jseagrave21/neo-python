@@ -1,3 +1,4 @@
+import asyncio
 from neo.Network.neonetwork.common import blocking_prompt as prompt
 from neo.logging import log_manager
 from neo.Prompt.CommandBase import CommandBase, CommandDesc, ParameterDesc
@@ -20,6 +21,7 @@ class CommandConfig(CommandBase):
         self.register_sub_command(CommandConfigVMLog())
         self.register_sub_command(CommandConfigMaxpeers())
         self.register_sub_command(CommandConfigNEP8())
+        self.register_sub_command(CommandConfigSafemode())
 
     def command_desc(self):
         return CommandDesc('config', 'configure internal settings')
@@ -210,6 +212,42 @@ class CommandConfigMaxpeers(CommandBase):
     def command_desc(self):
         p1 = ParameterDesc('number', 'maximum number of nodes to connect to')
         return CommandDesc('maxpeers', 'configure number of max peers', [p1])
+
+
+class CommandConfigSafemode(CommandBase):
+    def __init__(self):
+        super().__init__()
+        self.task = None
+
+    def execute(self, arguments):
+        if len(arguments) != 1:
+            print("Please specify the required parameter")
+            return False
+
+        try:
+            flag = bool(util.strtobool(arguments[0]))
+            settings.set_safemode(flag)
+        except ValueError:
+            print("Invalid option")
+            return False
+
+        nodemgr = NodeManager()
+        if flag:
+            self.task = asyncio.run_coroutine_threadsafe(nodemgr.update_seedlist(), loop=nodemgr.loop)
+            nodemgr.tasks.append(self.task)
+            for node in nodemgr.nodes:
+                asyncio.run_coroutine_threadsafe(node.disconnect(), loop=nodemgr.loop)
+            print("Safemode is ON")
+        else:
+            asyncio.run_coroutine_threadsafe(self.task.cancel(), loop=nodemgr.loop)
+            self.task = None
+            print("Safemode is OFF")
+
+        return True
+
+    def command_desc(self):
+        p1 = ParameterDesc('attribute', 'either "on"|"off" or 1|0')
+        return CommandDesc('safemode', 'toggle restricting peers to SEED_LIST only', [p1])
 
 
 def start_output_config():

@@ -17,6 +17,7 @@ from neo.Network.neonetwork.network.node import NeoNode
 from neo.Network.neonetwork.network.protocol import NeoProtocol
 from neo.Network.neonetwork.network.relaycache import RelayCache
 from neo.Network.neonetwork.network.requestinfo import RequestInfo
+from neo.Network.neonetwork.network.dynamicseedlist import DynamicSeedlist
 from neo.Settings import settings
 from neo.logging import log_manager
 
@@ -68,6 +69,8 @@ class NodeManager(Singleton):
 
         self.running = False
 
+        self.dynamicseedlist = DynamicSeedlist()  # always initiated in case Safemode is initiated during a prompt session
+
     async def start(self):
         host = 'localhost'
         port = 8888  # settings.NODE_PORT
@@ -99,13 +102,22 @@ class NodeManager(Singleton):
         self.tasks.append(asyncio.create_task(self.handle_connection_queue()))
         self.tasks.append(asyncio.create_task(self.query_peer_info()))
         self.tasks.append(asyncio.create_task(self.ensure_full_node_pool()))
+        if settings.SAFEMODE:
+            self.tasks.append(asyncio.create_task(self.update_seedlist()))
 
         self.running = True
 
     async def handle_connection_queue(self) -> None:
         while not self.shutting_down:
             addr, quality_check = await self.connection_queue.get()
-            task = asyncio.create_task(self._connect_to_node(addr, quality_check))
+            if settings.SAFEMODE:
+                if self.dynamicseedlist.ipfilter.is_allowed(addr):
+                    task = asyncio.create_task(self._connect_to_node(addr, quality_check))
+                else:
+                    logger.debug(f"Address {addr} not found in dynamic seedlist ...skipping")
+                    continue
+            else:
+                task = asyncio.create_task(self._connect_to_node(addr, quality_check))
             self.tasks.append(task)
             task.add_done_callback(lambda fut: self.tasks.remove(fut))
 
@@ -122,6 +134,18 @@ class NodeManager(Singleton):
         while not self.shutting_down:
             self.check_open_spots_and_queue_nodes()
             await asyncio.sleep(self.NODE_POOL_CHECK_INTERVAL)
+
+    async def update_seedlist(self) -> None:
+        while not self.shutting_down:
+            task = None
+            if settings.is_mainnet:
+                task = asyncio.create_task(self.dynamicseedlist.mainnet_build())
+            elif settings.is_testnet:
+                task = asyncio.create_task(self.dynamicseedlist.testnet_build())
+            if task:
+                self.tasks.append(task)
+                task.add_done_callback(lambda fut: self.tasks.remove(fut))
+            await asyncio.sleep(self.ONE_MINUTE)
 
     def check_open_spots_and_queue_nodes(self) -> None:
         open_spots = self.max_clients - (len(self.nodes) + len(self.queued_addresses))

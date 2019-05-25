@@ -112,6 +112,10 @@ async def setup_and_start(loop):
     parser.add_argument("--maxpeers", action="store", type=int,
                         help="Max peers to use for P2P Joining")
 
+    # Safemode
+    parser.add_argument("--safemode", action="store_true", default=False,
+                        help="Connect to dynamic seedlist addrs only")
+
     # If a wallet should be opened
     parser.add_argument("--wallet",
                         action="store",
@@ -194,6 +198,9 @@ async def setup_and_start(loop):
         if maxpeers < settings.CONNECTED_PEER_MIN:
             if not set_min_peers(maxpeers):
                 return
+
+    if args.safemode:
+        settings.set_safemode(True)
 
     if args.syslog or args.syslog_local is not None:
         # Setup the syslog facility
