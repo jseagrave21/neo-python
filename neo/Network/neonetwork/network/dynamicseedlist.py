@@ -14,16 +14,10 @@ from neo.Network.neonetwork.network import utils as networkutils
 class DynamicSeedlist():
     def init(self):
         self.ipfilter = IPFilter()
-        self.reset_ipfilter_config()
 
     def reset_ipfilter_config(self):
-        self.ipfilter.config = {
-            'blacklist': [
-                '0.0.0.0/0'
-            ],
-            'whitelist': [
-            ]
-        }
+        self.ipfilter.config = {'blacklist': ['0.0.0.0/0'], 'whitelist': []}
+        return True
 
     async def mainnet_build(self):
         await self.build('https://raw.githubusercontent.com/CityOfZion/neo-mon/master/docs/assets/mainnet.json', "10332", "10333")
