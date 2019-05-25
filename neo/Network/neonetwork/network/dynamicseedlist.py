@@ -51,7 +51,7 @@ class DynamicSeedlist():
                 to_remove.append(key)
         for site in to_remove:
             del site_dict[site]
-        self.ipfilter.config[""]
+        self.reset_ipfilter_config()
         for key in site_dict.keys():
             if not networkutils.is_ip_address(key):
                 try:

@@ -247,7 +247,7 @@ class CommandConfigSafemode(CommandBase):
 
     def command_desc(self):
         p1 = ParameterDesc('attribute', 'either "on"|"off" or 1|0')
-        return CommandDesc('safemode', 'toggle restricting peers to SEED_LIST only', [p1])
+        return CommandDesc('safemode', 'toggle restricting peers to dynamic seedlist only', [p1])
 
 
 def start_output_config():
