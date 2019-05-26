@@ -110,18 +110,21 @@ class NodeManager(Singleton):
     async def handle_connection_queue(self) -> None:
         while not self.shutting_down:
             addr, quality_check = await self.connection_queue.get()
-            if settings.SAFEMODE and len(self.dynamicseedlist.ipfilter.config['whitelist']) != 0:
+            if settings.SAFEMODE and len(self.dynamicseedlist.ipfilter.config['whitelist']) != 0 and not quality_check:
                 host, port = addr.split(':')
                 if self.dynamicseedlist.ipfilter.is_allowed(host):
                     task = asyncio.create_task(self._connect_to_node(addr, quality_check))
+                    self.tasks.append(task)
+                    task.add_done_callback(lambda fut: self.tasks.remove(fut))
                 else:
                     logger.debug(f"Address {addr} not found in dynamic seedlist ...skipping")
                     self.queued_addresses.remove(addr)
+                    self.bad_addresses.append(addr)
                     continue
             else:
                 task = asyncio.create_task(self._connect_to_node(addr, quality_check))
-            self.tasks.append(task)
-            task.add_done_callback(lambda fut: self.tasks.remove(fut))
+                self.tasks.append(task)
+                task.add_done_callback(lambda fut: self.tasks.remove(fut))
 
     async def query_peer_info(self) -> None:
         while not self.shutting_down:
@@ -153,13 +156,18 @@ class NodeManager(Singleton):
                     for node in self.nodes:
                         host, port = node.address.split(':')
                         if not self.dynamicseedlist.ipfilter.is_allowed(host):
-                            logger.debug(f"Address {node.address} not found in dynamic seedlist ...disconnecting")
-                            task = asyncio.create_task(node.disconnect())
+                            logger.debug(f"Address {node.address} not found in dynamic seedlist ...replacing")
+                            task = asyncio.create_task(self.replace_node(node))
                             self.tasks.append(task)
                             task.add_done_callback(lambda fut: self.tasks.remove(fut))
             await asyncio.sleep(self.ONE_MINUTE)
 
     def check_open_spots_and_queue_nodes(self) -> None:
+        print(f"Connected Nodes: {[node.address for node in self.nodes]}")
+        print(f"Queued Addresses: {self.queued_addresses}")
+        print(f"Connection Queue: {self.connection_queue.qsize()}")
+        print(f"Known Addresses: {len(self.known_addresses)}")
+        
         open_spots = self.max_clients - (len(self.nodes) + len(self.queued_addresses))
 
         if open_spots > 0:
@@ -224,7 +232,9 @@ class NodeManager(Singleton):
         if node.address not in self.bad_addresses:
             self.bad_addresses.append(node.address)
 
-        asyncio.create_task(node.disconnect())
+        task = asyncio.create_task(node.disconnect())
+        self.tasks.append(task)
+        task.add_done_callback(lambda fut: self.tasks.remove(fut))
 
         with suppress(IndexError):
             addr = self.known_addresses.pop(0)
