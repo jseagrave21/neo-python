@@ -163,11 +163,6 @@ class NodeManager(Singleton):
             await asyncio.sleep(self.ONE_MINUTE)
 
     def check_open_spots_and_queue_nodes(self) -> None:
-        print(f"Connected Nodes: {[node.address for node in self.nodes]}")
-        print(f"Queued Addresses: {self.queued_addresses}")
-        print(f"Connection Queue: {self.connection_queue.qsize()}")
-        print(f"Known Addresses: {len(self.known_addresses)}")
-        
         open_spots = self.max_clients - (len(self.nodes) + len(self.queued_addresses))
 
         if open_spots > 0:
