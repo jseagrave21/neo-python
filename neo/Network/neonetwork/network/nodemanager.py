@@ -110,11 +110,13 @@ class NodeManager(Singleton):
     async def handle_connection_queue(self) -> None:
         while not self.shutting_down:
             addr, quality_check = await self.connection_queue.get()
-            if settings.SAFEMODE:
-                if self.dynamicseedlist.ipfilter.is_allowed(addr):
+            if settings.SAFEMODE and len(self.dynamicseedlist.ipfilter.config['whitelist']) != 0:
+                host, port = addr.split(':')
+                if self.dynamicseedlist.ipfilter.is_allowed(host):
                     task = asyncio.create_task(self._connect_to_node(addr, quality_check))
                 else:
                     logger.debug(f"Address {addr} not found in dynamic seedlist ...skipping")
+                    self.queued_addresses.remove(addr)
                     continue
             else:
                 task = asyncio.create_task(self._connect_to_node(addr, quality_check))
@@ -136,7 +138,7 @@ class NodeManager(Singleton):
             await asyncio.sleep(self.NODE_POOL_CHECK_INTERVAL)
 
     async def update_seedlist(self) -> None:
-        while not self.shutting_down:
+        while settings.SAFEMODE:
             task = None
             if settings.is_mainnet:
                 task = asyncio.create_task(self.dynamicseedlist.mainnet_build())
@@ -145,6 +147,16 @@ class NodeManager(Singleton):
             if task:
                 self.tasks.append(task)
                 task.add_done_callback(lambda fut: self.tasks.remove(fut))
+                # logger.debug(f"Dynamic Seedlist: {self.dynamicseedlist.ipfilter.config}")
+
+                if len(self.dynamicseedlist.ipfilter.config['whitelist']) != 0:
+                    for node in self.nodes:
+                        host, port = node.address.split(':')
+                        if not self.dynamicseedlist.ipfilter.is_allowed(host):
+                            logger.debug(f"Address {node.address} not found in dynamic seedlist ...disconnecting")
+                            task = asyncio.create_task(node.disconnect())
+                            self.tasks.append(task)
+                            task.add_done_callback(lambda fut: self.tasks.remove(fut))
             await asyncio.sleep(self.ONE_MINUTE)
 
     def check_open_spots_and_queue_nodes(self) -> None:

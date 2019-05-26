@@ -217,7 +217,6 @@ class CommandConfigMaxpeers(CommandBase):
 class CommandConfigSafemode(CommandBase):
     def __init__(self):
         super().__init__()
-        self.task = None
 
     def execute(self, arguments):
         if len(arguments) != 1:
@@ -231,16 +230,12 @@ class CommandConfigSafemode(CommandBase):
             print("Invalid option")
             return False
 
-        nodemgr = NodeManager()
         if flag:
-            self.task = asyncio.run_coroutine_threadsafe(nodemgr.update_seedlist(), loop=nodemgr.loop)
-            nodemgr.tasks.append(self.task)
-            for node in nodemgr.nodes:
-                asyncio.run_coroutine_threadsafe(node.disconnect(), loop=nodemgr.loop)
+            nodemgr = NodeManager()
+            task = asyncio.run_coroutine_threadsafe(nodemgr.update_seedlist(), loop=nodemgr.loop)
+            nodemgr.tasks.append(task)
             print("Safemode is ON")
         else:
-            asyncio.run_coroutine_threadsafe(self.task.cancel(), loop=nodemgr.loop)
-            self.task = None
             print("Safemode is OFF")
 
         return True

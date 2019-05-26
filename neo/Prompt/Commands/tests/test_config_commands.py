@@ -222,47 +222,35 @@ class CommandConfigTestCase(BlockchainFixtureTestCase):
         with patch('sys.stdout', new=StringIO()) as mock_print:
             with patch('neo.Prompt.Commands.Config.asyncio'):
                 with patch('neo.Network.neonetwork.network.nodemanager.NodeManager.update_seedlist') as mock_update:
-                    with patch('neo.Network.neonetwork.network.node.NeoNode.disconnect') as mock_disconnect:
-                        args = ['safemode', 'on']
-                        res = CommandConfig().execute(args)
-                        self.assertTrue(res)
-                        self.assertIn("Safemode is ON", mock_print.getvalue())
-                        self.assertTrue(mock_update.called)
-                        self.assertTrue(mock_disconnect.called)
+                    args = ['safemode', 'on']
+                    res = CommandConfig().execute(args)
+                    self.assertTrue(res)
+                    self.assertIn("Safemode is ON", mock_print.getvalue())
+                    self.assertTrue(mock_update.called)
 
         # test turning on - 2
         with patch('sys.stdout', new=StringIO()) as mock_print:
             with patch('neo.Prompt.Commands.Config.asyncio'):
                 with patch('neo.Network.neonetwork.network.nodemanager.NodeManager.update_seedlist') as mock_update:
-                    with patch('neo.Network.neonetwork.network.node.NeoNode.disconnect') as mock_disconnect:
-                        args = ['safemode', '1']
-                        res = CommandConfig().execute(args)
-                        self.assertTrue(res)
-                        self.assertIn("Safemode is ON", mock_print.getvalue())
-                        self.assertTrue(mock_update.called)
-                        self.assertTrue(mock_disconnect.called)
+                    args = ['safemode', '1']
+                    res = CommandConfig().execute(args)
+                    self.assertTrue(res)
+                    self.assertIn("Safemode is ON", mock_print.getvalue())
+                    self.assertTrue(mock_update.called)
 
         # test turning off - 1
-    #   with patch('sys.stdout', new=StringIO()) as mock_print:
-    #       with patch('neo.Prompt.Commands.Config.asyncio'):
-    #           with patch.object('neo.Prompt.Commands.Config.CommandConfigSafemode.task') as mock_task:
-    #               mock_task.cancel = MagicMock()
-    #               args = ['safemode', 'off']
-    #               res = CommandConfig().execute(args)
-    #               self.assertTrue(res)
-    #               self.assertIn("Safemode is OFF", mock_print.getvalue())
-    #               self.assertTrue(mock_task.cancel.called)
+        with patch('sys.stdout', new=StringIO()) as mock_print:
+            args = ['safemode', 'off']
+            res = CommandConfig().execute(args)
+            self.assertTrue(res)
+            self.assertIn("Safemode is OFF", mock_print.getvalue())
 
         # test turning off - 2
-    #   with patch('sys.stdout', new=StringIO()) as mock_print:
-    #       with patch('neo.Prompt.Commands.Config.asyncio'):
-    #           with patch.object('neo.Prompt.Commands.Config.CommandConfigSafemode.task') as mock_task:
-    #               mock_task.cancel = MagicMock()
-    #               args = ['safemode', '0']
-    #               res = CommandConfig().execute(args)
-    #               self.assertTrue(res)
-    #               self.assertIn("Safemode is OFF", mock_print.getvalue())
-    #               self.assertTrue(mock_task.cancel.called)
+        with patch('sys.stdout', new=StringIO()) as mock_print:
+            args = ['safemode', '0']
+            res = CommandConfig().execute(args)
+            self.assertTrue(res)
+            self.assertIn("Safemode is OFF", mock_print.getvalue())
 
         nodemgr.reset_for_test()
         nodemgr.loop = None

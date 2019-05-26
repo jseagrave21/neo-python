@@ -14,18 +14,18 @@ from neo.Network.neonetwork.network import utils as networkutils
 class DynamicSeedlist():
     def __init__(self):
         self.ipfilter = IPFilter()
+        self.reset_ipfilter_config()
 
     def reset_ipfilter_config(self):
         self.ipfilter.config = {'blacklist': ['0.0.0.0/0'], 'whitelist': []}
-        return True
 
     async def mainnet_build(self):
-        await self.build('https://raw.githubusercontent.com/CityOfZion/neo-mon/master/docs/assets/mainnet.json', "10332", "10333")
+        await self.build('https://raw.githubusercontent.com/CityOfZion/neo-mon/master/docs/assets/mainnet.json', "10332")
 
     async def testnet_build(self):
-        await self.build('https://raw.githubusercontent.com/CityOfZion/neo-mon/master/docs/assets/testnet.json', "20332", "20333")
+        await self.build('https://raw.githubusercontent.com/CityOfZion/neo-mon/master/docs/assets/testnet.json', "20332")
 
-    async def build(self, raw_seedlist, http_port, P2P_port):
+    async def build(self, raw_seedlist, http_port):
         async with aiohttp.ClientSession() as session:
             async with session.get(raw_seedlist) as res:
                 data = await res.json(content_type=None)
@@ -38,7 +38,7 @@ class DynamicSeedlist():
                 site_dict.update(i)
 
         heights = sorted(site_dict.values(), reverse=True)
-        threshold = heights[0] - 2  # gives 30 sec on average to complete the query
+        threshold = heights[0] - 1  # gives 30 sec on average to complete the query
         to_remove = []
         for key, val in site_dict.items():
             if val < threshold:
@@ -52,7 +52,7 @@ class DynamicSeedlist():
                     key = networkutils.hostname_to_ip(key)
                 except socket.gaierror:
                     continue
-            self.ipfilter.whitelist_add(key + ":" + P2P_port)
+            self.ipfilter.whitelist_add(key)
 
 
 """
@@ -76,12 +76,9 @@ async def filtersite(site, http_port):
         elif site['protocol'] == "http":
             port = ":" + http_port
         url = site['protocol'] + '://' + site['url'] + port
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url=url, json=body("getversion")) as res:
-                    version = await res.json()
-        except aiohttp.ClientError as e:
-            return e
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url=url, json=body("getversion")) as res:
+                version = await res.json()
         if "NEO-PYTHON" not in version['result']['useragent']:  # NEO-PYTHON 0.8.4+ employs SimplePolicy
             async with aiohttp.ClientSession() as session:
                 async with session.post(url=url, json=body("listplugins")) as res:
@@ -91,9 +88,9 @@ async def filtersite(site, http_port):
                 for p in plugins['result']:
                     p_list.append(p['name'])
             except KeyError:
-                return 1
+                return 1  # verifies neo-cli version >= 2.10.1
             if "SimplePolicyPlugin" not in p_list:
-                return 2
+                return 2  # verifies neo-cli has SimplePolicyPlugin
         async with aiohttp.ClientSession() as session:
             async with session.post(url=url, json=body("getblockcount")) as res:
                 blockheight = await res.json()
