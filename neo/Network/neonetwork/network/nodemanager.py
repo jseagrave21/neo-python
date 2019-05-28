@@ -141,7 +141,7 @@ class NodeManager(Singleton):
             await asyncio.sleep(self.NODE_POOL_CHECK_INTERVAL)
 
     async def update_seedlist(self) -> None:
-        while settings.SAFEMODE:
+        while not self.shutting_down and settings.SAFEMODE:
             task = None
             if settings.is_mainnet:
                 task = asyncio.create_task(self.dynamicseedlist.mainnet_build())
