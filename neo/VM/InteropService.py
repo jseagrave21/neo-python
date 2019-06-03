@@ -10,8 +10,10 @@ logger = log_manager.getLogger('vm')
 
 
 class CollectionMixin:
-    IsSynchronized = False
-    SyncRoot = None
+
+    def __init__(self):
+        self.IsSynchronized = False
+        self.SyncRoot = None
 
     @property
     def Count(self):
@@ -30,6 +32,14 @@ class CollectionMixin:
 class StackItem(EquatableMixin):
 
     @property
+    def IsTypeMap(self):
+        return False
+
+    @property
+    def IsTypeArray(self):
+        return False
+
+    @property
     def IsStruct(self):
         return False
 
@@ -38,6 +48,9 @@ class StackItem(EquatableMixin):
 
     def GetBigInteger(self):
         return BigInteger(int.from_bytes(self.GetByteArray(), 'little', signed=True))
+
+    def GetByteLength(self):
+        return len(self.GetByteArray())
 
     def GetBoolean(self):
         for p in self.GetByteArray():
@@ -140,7 +153,10 @@ class StackItem(EquatableMixin):
 
 
 class Array(StackItem, CollectionMixin):
-    _array = None  # a list of stack items
+
+    @property
+    def IsTypeArray(self):
+        return True
 
     @property
     def Count(self):
@@ -224,9 +240,7 @@ class Array(StackItem, CollectionMixin):
 
 class Boolean(StackItem):
     TRUE = bytearray([1])
-    FALSE = bytearray([0])
-
-    _value = None
+    FALSE = bytearray()  # restore once https://github.com/neo-project/neo-vm/pull/132 is approved
 
     def __init__(self, value):
         self._value = value
@@ -255,6 +269,9 @@ class Boolean(StackItem):
     def GetByteArray(self):
         return self.TRUE if self._value else self.FALSE
 
+    def GetByteLength(self):
+        return len(self.GetByteArray())
+
     def Serialize(self, writer):
         writer.WriteByte(StackItemType.Boolean)
         writer.WriteByte(self.GetBigInteger())
@@ -264,7 +281,6 @@ class Boolean(StackItem):
 
 
 class ByteArray(StackItem):
-    _value = None
 
     def __init__(self, value):
         self._value = value
@@ -323,7 +339,6 @@ class ByteArray(StackItem):
 
 
 class Integer(StackItem):
-    _value = None
 
     def __init__(self, value):
         if type(value) is not BigInteger:
@@ -363,7 +378,6 @@ class Integer(StackItem):
 
 
 class InteropInterface(StackItem):
-    _object = None
 
     def __init__(self, value):
         self._object = value
@@ -443,13 +457,16 @@ class Struct(Array):
 
 
 class Map(StackItem, CollectionMixin):
-    _dict = None
 
     def __init__(self, dict=None):
         if dict:
             self._dict = dict
         else:
             self._dict = {}
+
+    @property
+    def IsTypeMap(self):
+        return True
 
     @property
     def Keys(self):
@@ -532,9 +549,15 @@ class Map(StackItem, CollectionMixin):
     def GetByteArray(self):
         raise Exception("Not supported- Cant get byte array for item %s %s " % (type(self), self._dict))
 
+    @classmethod
+    def FromDictionary(cls, dictionary: dict):
+        data = {}
+        for k, v in dictionary.items():
+            data[StackItem.New(k)] = StackItem.New(v)
+        return cls(data)
+
 
 class InteropService:
-    _dictionary = {}
 
     def __init__(self):
         self._dictionary = {}

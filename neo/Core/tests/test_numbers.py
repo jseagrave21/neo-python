@@ -9,6 +9,7 @@ from neo.Core.BigInteger import BigInteger
 from neo.Core.UIntBase import UIntBase
 from neo.Core.UInt160 import UInt160
 from neo.Core.UInt256 import UInt256
+from decimal import Decimal
 
 
 class Fixed8TestCase(TestCase):
@@ -178,7 +179,7 @@ class Fixed8TestCase(TestCase):
 
         f8 = Fixed8.One()
         self.assertEqual(f8.ToInt(), 1)
-        self.assertEqual(f8.ToString(), "1.0")
+        self.assertEqual(f8.ToString(), "1")
         self.assertTrue(isinstance(f8.ToString(), str))
 
     def test_fixed8_tojsonstring(self):
@@ -191,8 +192,17 @@ class Fixed8TestCase(TestCase):
         f8 = Fixed8.FromDecimal(100)
         self.assertEqual("100", f8.ToNeoJsonString())
 
+        f8 = Fixed8.FromDecimal(100.00000001)
+        self.assertEqual("100.00000001", f8.ToNeoJsonString())
+
+        f8 = Fixed8.FromDecimal(100.000000001)
+        self.assertEqual("100", f8.ToNeoJsonString())
+
         f8 = Fixed8.FromDecimal(2609.997813)
         self.assertEqual("2609.997813", f8.ToNeoJsonString())
+
+        f8 = Fixed8.FromDecimal(Decimal("1e-08"))
+        self.assertEqual(f8.ToNeoJsonString(), "0.00000001")
 
 
 class BigIntegerTestCase(TestCase):
@@ -313,6 +323,21 @@ class BigIntegerTestCase(TestCase):
         left_shift = b1 << b3
         self.assertEqual(left_shift, 8)
         self.assertIsInstance(left_shift, BigInteger)
+
+    def test_negative_shifting(self):
+        # C#'s BigInteger changes a left shift with a negative shift index,
+        # to a right shift with a positive index.
+
+        b1 = BigInteger(8)
+        b2 = BigInteger(-3)
+        # shift against BigInteger
+        self.assertEqual(1, b1 << b2)
+        # shift against integer
+        self.assertEqual(1, b1 << -3)
+
+        # the same as above but for right shift
+        self.assertEqual(64, b1 >> b2)
+        self.assertEqual(64, b1 >> -3)
 
 
 class UIntBaseTestCase(TestCase):

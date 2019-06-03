@@ -15,17 +15,20 @@ class StateType(Enum):
 
 
 class StateDescriptor(SerializableMixin):
-    Type = None
-    Key = None  # byte[]
-    Field = None  # string
-    Value = None  # byte[]
+
+    def __init__(self):
+        super().__init__()
+        self.Type = None
+        self.Key = None  # byte[]
+        self.Field = None  # string
+        self.Value = None  # byte[]
 
     @property
     def SystemFee(self):
-        if self.Type == StateType.Account:
-            return Fixed8.Zero()
-        elif self.Type == StateType.Validator:
+        if self.Type == StateType.Validator:
             return self.GetSystemFee_Validator()
+        else:
+            return Fixed8.Zero()
 
     def Size(self):
         """
@@ -145,8 +148,8 @@ class StateDescriptor(SerializableMixin):
         raise Exception("Invalid State Descriptor")
 
     def VerifyAccountState(self):
-        # @TODO
-        # Implement VerifyAccount State
+        # TODO
+        #  Implement VerifyAccount State
         raise NotImplementedError()
 
     def VerifyValidatorState(self):

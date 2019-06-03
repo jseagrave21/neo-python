@@ -8,14 +8,31 @@ All notable changes to this project are documented in this file.
 - Allow override of test invocation return type
 - Add current wallet height to bottom toolbar
 - Change class attributes of ``Transaction`` into instance attributes and fix constructor
+- Fix sys_fee calculation in block persist.
 - Improve testing of "getbalance" RPC method
 - Support cancelling actions with ``KeyboardInterrupt``
 - Enhance output of `wallet` cli command
 - Fixed size calculation for `RegisterTransaction`
 - Support updating np-core to throw exceptions instead of logging errors `#888 <https://github.com/CityOfZion/neo-python/issues/888>`_
 - Fixed size calculation for `InvocationTransaction` `#919 <https://github.com/CityOfZion/neo-python/pull/919>`_
-- Update Virtual Machine to latest implementation, Add support for running official JSON test vectors `#921 <https://github.com/CityOfZion/neo-python/pull/921>`_
+- Update Virtual Machine to latest implementation, Add support for running official JSON test vectors `#921 <https://github.com/CityOfZion/neo-python/pull/921>`_ `#932 <https://github.com/CityOfZion/neo-python/pull/932>`_
 - Add PICKITEM for ByteArray into VM `#923 <https://github.com/CityOfZion/neo-python/pull/923>`_
+- Improve Connection Failure Handling in NodeLeader `#915 <https://github.com/CityOfZion/neo-python/issues/915>`_
+- Improve transaction coverage and fix `PublishTransaction.Size()` `#929 <https://github.com/CityOfZion/neo-python/issues/929>`_
+- Align ``Fixed8`` ``ToString()`` output with C# `#941 <https://github.com/CityOfZion/neo-python/pull/941>`_
+- Move from using ``Twisted`` to ``asyncio`` as event driven framework `#934 <https://github.com/CityOfZion/neo-python/pull/934>`_
+- Add new networking code
+- Add IP Filtering
+- Tighten smart contract storage context validation
+- Update VM to 2.4.3 (Also updates ``ApplicationEngine``, ``StateReader``  and ``StateMachine``)
+- Add support for new Ping/Pong network payload
+- Add neo-vm JSON test support + add new Debugger wrapping class
+- Various VM performance updates
+- Various code cleaning updates
+- Ensure LevelDB iterators are close, ensure all ``MemoryStream`` usages go through ``StreamManger`` and are closed.
+- Fix ``np-import`` not importing headers ahead of block persisting potentially unexpected VM execution results
+- Fix undesired debug statement printing
+- Add negative bitwise shifting support for ``BigInteger`` to match C#
 
 
 [0.8.4] 2019-02-14

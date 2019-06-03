@@ -7,7 +7,6 @@ Usage:
 import sys
 from itertools import groupby
 import binascii
-from logzero import logger
 from neo.Core.UInt160 import UInt160
 from neo.Blockchain import GetBlockchain
 from neo.Core.TX.TransactionAttribute import TransactionAttributeUsage
@@ -27,11 +26,12 @@ from neo.Core.AssetType import AssetType
 from neo.Core.Size import Size as s
 from neo.Core.Size import GetVarSize
 from neo.Settings import settings
+from neo.logging import log_manager
+
+logger = log_manager.getLogger()
 
 
 class TransactionResult(EquatableMixin):
-    AssetId = None
-    Amount = Fixed8(0)
 
     def __init__(self, asset_id, amount):
         """
@@ -78,10 +78,6 @@ class TransactionType:
 
 
 class TransactionOutput(SerializableMixin, EquatableMixin):
-    Value = None  # should be fixed 8
-    ScriptHash = None
-    AssetId = None
-
     """docstring for TransactionOutput"""
 
     def __init__(self, AssetId=None, Value=None, script_hash=None):
@@ -168,9 +164,6 @@ class TransactionOutput(SerializableMixin, EquatableMixin):
 class TransactionInput(SerializableMixin, EquatableMixin):
     """docstring for TransactionInput"""
 
-    PrevHash = None
-    PrevIndex = None
-
     def __init__(self, prevHash=None, prevIndex=None):
         """
         Create an instance.
@@ -226,7 +219,6 @@ class TransactionInput(SerializableMixin, EquatableMixin):
 
 class Transaction(InventoryMixin):
     Version = 0
-    __system_fee = None
     InventoryType = InventoryType.TX
     MAX_TX_ATTRIBUTES = 16
     MAX_TX_SIZE = 102400
@@ -246,11 +238,12 @@ class Transaction(InventoryMixin):
         self.Attributes = [] if attributes is None else attributes
         self.scripts = [] if scripts is None else scripts
         self.InventoryType = 0x01  # InventoryType TX 0x01
-        self.__references = None
+        self._references = None
         self.Type = None
         self.raw_tx = False
         self.withdraw_hold = None
         self._network_fee = None
+        self.__system_fee = None
         self.__hash = None
         self.__htbs = None
         self.__height = 0
@@ -298,7 +291,7 @@ class Transaction(InventoryMixin):
 
     def ResetReferences(self):
         """Reset local stored references."""
-        self.__references = None
+        self._references = None
 
     def ResetHashData(self):
         """Reset local stored hash data."""
@@ -324,7 +317,7 @@ class Transaction(InventoryMixin):
                 Key (UInt256): input PrevHash
                 Value (TransactionOutput): object.
         """
-        if self.__references is None:
+        if self._references is None:
 
             refs = {}
 
@@ -336,9 +329,9 @@ class Transaction(InventoryMixin):
                     for input in group:
                         refs[input] = tx.outputs[input.PrevIndex]
 
-            self.__references = refs
+            self._references = refs
 
-        return self.__references
+        return self._references
 
     def Size(self):
         """
@@ -406,7 +399,7 @@ class Transaction(InventoryMixin):
         """
         self.DeserializeUnsigned(reader)
 
-        self.scripts = reader.ReadSerializableArray()
+        self.scripts = reader.ReadSerializableArray('neo.Core.Witness.Witness')
         self.OnDeserialized()
 
     def DeserializeExclusiveData(self, reader):
@@ -597,7 +590,7 @@ class Transaction(InventoryMixin):
         Returns:
             bool: True if verified. False otherwise.
         """
-        logger.info("Verifying transaction: %s " % self.Hash.ToBytes())
+        logger.debug("Verifying transaction: %s " % self.Hash.ToBytes())
 
         return Helper.VerifyScripts(self)
 
