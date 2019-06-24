@@ -491,7 +491,6 @@ class RawTransaction(Transaction):
             print("Transaction initiated, but the signature is incomplete. Sign again with another valid multi-sig keypair.")
         else:
             raise SignatureError("Unable to sign transaction.")
-        wallet.Close()
         wallet = None
         os.remove(temp_path)
 
