@@ -2,6 +2,7 @@ import os
 import binascii
 import requests
 import json
+import datetime
 from neo.Core.BigInteger import BigInteger
 from neo.Core.CoinReference import CoinReference
 from neo.Core.Cryptography.Crypto import Crypto
@@ -429,6 +430,9 @@ class RawTransaction(Transaction):
             self.Attributes.append(TransactionAttribute(usage=TransactionAttributeUsage.Script, data=self.SOURCE_SCRIPTHASH))
         if s > 1:
             raise TXAttributeError('The script attribute must be used to verify the source address.')
+
+        # add unique remark to prevent creating identical invocations
+        self.AddRemark(f"{datetime.datetime.utcnow()}")
 
     def ImportFromArray(self, raw_tx):
         """
