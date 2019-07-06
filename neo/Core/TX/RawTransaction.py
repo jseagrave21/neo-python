@@ -311,8 +311,8 @@ class RawTransaction(Transaction):
         else:
             change_hash = change_addr
 
-        if not self.outputs:
-            raise RawTXError("Please specify outputs prior to creating change output(s).")
+        if not self.outputs and self.SystemFee() == Fixed8.Zero() and self._network_fee == Fixed8.Zero():
+            raise RawTXError("Please specify outputs, network fee, and/or system fee prior to creating change output(s).")
 
         neo = []
         gas = []
@@ -339,9 +339,9 @@ class RawTransaction(Transaction):
         if neo_diff < Fixed8.Zero() or gas_diff < Fixed8.Zero():
             raise AssetError('Total outputs exceed the available unspents.')
 
-        if neo_diff > Fixed8.Zero():
+        if neo and neo_diff > Fixed8.Zero():
             self.outputs.append(TransactionOutput(AssetId=UInt256.ParseString(self.neo_asset_id), Value=neo_diff, script_hash=change_hash))
-        if gas_diff > Fixed8.Zero() and Fixed8(sum(gas)) > Fixed8.Zero():
+        if gas and gas_diff > Fixed8.Zero() and Fixed8(sum(gas)) > Fixed8.Zero():
             self.outputs.append(TransactionOutput(AssetId=UInt256.ParseString(self.gas_asset_id), Value=gas_diff, script_hash=change_hash))
 
     def AddClaim(self, claim_addr, to_addr=None):
