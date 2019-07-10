@@ -50,6 +50,8 @@ All notable changes to this project are documented in this file.
 - Port caching layer from neo-cli
 - Fix ``Contract_Migrate`` sycall
 - Fix ``BigInteger`` modulo for negative divisor values
+- Fix ``GetBoolean()`` for ``Array`` stackitem
+- Fix ``BigInteger`` division for negative dividend values
 
 
 [0.8.4] 2019-02-14

@@ -639,6 +639,9 @@ class StateMachine(StateReader):
         if len(param_list) > 252:
             return False
         return_type = int(engine.CurrentContext.EvaluationStack.Pop().GetBigInteger())
+        if return_type > 0xff:
+            raise ValueError("Invalid return type data popped from stack")
+
         contract_properties = int(engine.CurrentContext.EvaluationStack.Pop().GetBigInteger())
 
         if len(engine.CurrentContext.EvaluationStack.Peek().GetByteArray()) > 252:
