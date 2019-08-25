@@ -11,7 +11,7 @@ from neo.Core.Helper import Helper
 from neo.Core.IO.BinaryReader import BinaryReader
 from neo.Core.KeyPair import KeyPair
 from neo.Core.Size import GetVarSize, Size
-from neo.Core.TX.Transaction import Transaction, TransactionType, TransactionOutput, TXFeeError
+from neo.Core.TX.Transaction import Transaction, TransactionType, TransactionOutput
 from neo.Core.TX.TransactionAttribute import TransactionAttribute, TransactionAttributeUsage
 from neo.Core.UInt256 import UInt256
 from neo.Core.UInt160 import UInt160
@@ -541,7 +541,7 @@ class RawTransaction(Transaction):
             if req_fee < settings.LOW_PRIORITY_THRESHOLD:
                 req_fee = settings.LOW_PRIORITY_THRESHOLD
             if fee < req_fee:
-                raise TXFeeError(f'The tx size ({self.Size()}) exceeds the max free tx size ({settings.MAX_FREE_TX_SIZE}).\nA network fee of {req_fee.ToString()} GAS is required.')
+                raise RawTXError(f'The tx size ({self.Size()}) exceeds the max free tx size ({settings.MAX_FREE_TX_SIZE}).\nA network fee of {req_fee.ToString()} GAS is required.')
 
     @property
     def References(self):
