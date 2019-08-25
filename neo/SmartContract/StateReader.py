@@ -24,6 +24,7 @@ from neo.IO.MemoryStream import StreamManager
 from neo.Core.State.ContractState import ContractState
 from neo.Core.State.StorageItem import StorageItem
 from neo.logging import log_manager
+import hashlib
 
 logger = log_manager.getLogger('vm')
 
@@ -31,8 +32,9 @@ logger = log_manager.getLogger('vm')
 class StateReader(InteropService):
 
     def RegisterWithPrice(self, method, func, price):
-        self._dictionary[method] = func
-        self.prices.update({hash(method): price})
+        hashed_method = int.from_bytes(hashlib.sha256(method.encode()).digest()[:4], 'little', signed=False)
+        self._dictionary[hashed_method] = func
+        self.prices.update({hashed_method: price})
 
     def __init__(self, trigger_type, snapshot):
 
@@ -278,7 +280,6 @@ class StateReader(InteropService):
             stack_item.Serialize(writer)
         except Exception as e:
             StreamManager.ReleaseStream(ms)
-            logger.debug("Cannot serialize item %s: %s " % (stack_item, e))
             return False
 
         ms.flush()
@@ -303,7 +304,6 @@ class StateReader(InteropService):
             engine.CurrentContext.EvaluationStack.PushT(stack_item)
         except ValueError as e:
             # can't deserialize type
-            logger.debug("%s " % e)
             return False
         finally:
             StreamManager.ReleaseStream(ms)
@@ -615,7 +615,7 @@ class StateReader(InteropService):
 
                 to_del = []
                 for k, v in self.Snapshot.Storages.Find(hash.ToArray()):
-                    storage_key = StorageKey(script_hash=hash, key=k)
+                    storage_key = StorageKey(script_hash=hash, key=k[20:])
                     # Snapshot.Storages.Delete() modifies the underlying dictionary of the cache we'd be iterating
                     # over using Storages.Find. We therefore need to postpone deletion
                     to_del.append(storage_key)
